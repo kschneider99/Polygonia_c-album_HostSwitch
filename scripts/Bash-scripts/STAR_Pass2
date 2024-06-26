@@ -1,0 +1,34 @@
+# Mapping - STAR - Pass 2
+#================================
+
+# Mapping was done using STAR (Version: 2.7.2b; 2-pass approach)
+# Dobin et al. 2013
+
+#SJ files were summarized in a new directory "/mapped/STAR_Pass1"
+
+#STAR_Pass2.sh
+#-----------------
+indir=/proj/pcalbum2021-23-194/Switches/Switch_2/trimmed_reads_S2
+index=/proj/pcalbum2021-23-194/genome_files/Index
+SJ=/proj/pcalbum2021-23-194/Switches/Switch_2/mapped/STAR_Pass1
+
+module load bioinfo-tools star/2.7.2b
+
+left=(${indir}/SS*_left.fq.gz)
+right=(${indir}/SS*_right.fq.gz)
+
+for ((i=0;i<"${#left[@]}";i++)); do
+
+  STAR \
+  --runThreadN 8 \
+  --genomeDir $index \
+  --readFilesIn "${left[$i]}" "${right[$i]}" \
+  --readFilesCommand zcat \
+  --outSAMtype BAM SortedByCoordinate \
+  --outSJfilterReads Unique \
+  --outSAMstrandField intronMotif \
+  --outFileNamePrefix /"${left[$i]%%_rep*}.Pass2_" \
+  --outFilterMultimapNmax 1 \
+  --sjdbFileChrStartEnd $SJ/GG_seventeenrep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GG_seventeenrep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GG_seventeenrep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GG_seventeenrep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GG_tworep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GG_tworep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GG_tworep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GG_tworep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GN_seventeenrep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GN_seventeenrep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GN_seventeenrep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GN_seventeenrep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GN_tworep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GN_tworep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GN_tworep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GN_tworep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GS_seventeenrep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GS_seventeenrep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GS_seventeenrep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GS_seventeenrep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GS_tworep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GS_tworep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GS_tworep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/GS_tworep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NG_seventeenrep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NG_seventeenrep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NG_seventeenrep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NG_seventeenrep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NG_tworep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NG_tworep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NG_tworep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NG_tworep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NN_seventeenrep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NN_seventeenrep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NN_seventeenrep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NN_tworep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NN_tworep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NN_tworep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NN_tworep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NS_seventeenrep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NS_seventeenrep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NS_seventeenrep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NS_seventeenrep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NS_seventeenrep_3.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NS_seventeenrep_3.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NS_tworep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NS_tworep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NS_tworep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/NS_tworep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SG_seventeenrep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SG_seventeenrep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SG_seventeenrep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SG_seventeenrep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SG_tworep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SG_tworep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SG_tworep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SG_tworep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SN_seventeenrep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SN_seventeenrep_1.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SN_seventeenrep_2.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SN_seventeenrep_2.2_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SN_tworep_1.1_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SN_tworep_1.2B_left.fq.gz.S2_Pass1_SJ.out.tab $SJ/SN_t
+
+done
