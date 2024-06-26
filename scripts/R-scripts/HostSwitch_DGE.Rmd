@@ -1,0 +1,4166 @@
+---
+title: "Plasticity for the win: Flexible transcriptional response to host plant switches
+  in the comma butterfly (Polygonia c-album)"
+author: "Katharina Schneider, Rachel A. Steward, Maria de la Paz Celorio-Mancera,
+  Niklas Janz, Dick Moberg, Christopher W. Wheat, Sören Nylin"
+date: "2024-06-25"
+output: html_document
+---
+
+#1. Background
+
+This experiment is based on gene expression data from 2 different experiments, that differ in the used host plants.
+In the first experiment (Switch 1), larvae were switched between Urtica dioica (N resp. U for later analysis), Salix caprea (S) and Ulmus (E). The second switch experiment was done between Urtica dioica, Salix caprea and Ribes uva-crispa (G resp. R).
+
+Larvae of Pca (Polygonia c-album) were reared on either of 3 different host plants (N, S, E resp. U, S, G).
+Larvae were reared under short-day conditions at 17C with a 12:12h light cycle.
+When reaching the 5th instar (earlier stages were hard to dissect) larvae were moved to a new plant. This was either the same species (e.g. N-N; "control") or an alternative host (e.g. N-S, "switch").
+To check for potential transcriptional changes after the switch, gut tissue was dissected 2hrs (the time that a food pellet roughly needs to pass through the larva) and 17hrs after larvae were switched/initiated feeding on the new host.
+3 families with 2 individuals per family were used per treatment to include potential variation. However: family 3 had some peculiarities --> they showed more progressed developmental characters (shrunk gut, elongated body)--> family 3 was thus excluded from extraction labelling of the samples: "Host1Host2Family.Individual.Hours", e.g. NN2.1.2hrs, NS1.2.17hrs
+
+##GOAL 
+the overall expression profile of the larvae will be compared to check for host specific adaptations/expression patterns/modules
+
+##RNA extraction and sequencing
+Extraction was done using: TRI-reagent/BCP RNA isolation protocol with DNA depletion
+quality check was done using Bioanalyzer, concentrations were measured using Qubit
+Extracts were send to SciLifeLab for library preparation and sequencing (according to them they measured a concentration 10 times higher,
+than what we measured with Qubit, so we agreed, that they will dilute the samples again and proceed with the library prep and sequencing)
+data processing (trimming, mapping, abundance estimation) was done on Uppmax
+
+##Reference genome
+Celorio-Mancera et al. 2021: Chromosome level assembly of the comma butterly (Polygonia c-album)
+
+#2. load packages
+```{r load packages, "message = F"}
+
+library(limma) #version 3.54.0
+library(edgeR) #version 3.40.0
+library(tidyverse) #version 1.3.2 
+library(dplyr) #version 1.1.4
+library(ggplot2) #version 3.4.0
+library(ggpubr) #version 0.5.0
+library(stringr) #version 1.5.1
+library(gplots) #version 3.1.3.1
+library(ggtext) #version 0.1.2
+library(ComplexHeatmap) #version 2.14.0
+library(circlize) #version 0.4.16
+library(scales) #version 1.3.0
+library(ggVennDiagram) #version 1.5.2
+library(UpSetR) #version 1.4.0
+library(cowplot) #version 1.1.3
+library(gridExtra) #version 2.3
+library(topGO) #version 2.50.0
+library(ggplotify) #version 0.1.2
+library(RColorBrewer) #version 1.1-3
+library(xlsx) #version 0.6.5
+
+```
+
+#3. Data preparation
+
+## load count data
+
+Switch 1 (i.e. Switch A)
+...........................
+The first Switch experiment was done using: Ulmus glabra, Salix caprea and Urtica dioica
+experimental design: 4 families, 1 individual per family, sampling at two timepoints (2hrs and 17hrs), technical replicates !
+36 samples per timepoint (some needed to be removed, see below)
+
+```{r read in Switch 1}
+
+Switch_1_all=read.delim("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Gene_counts/Switch1/Count_S1", row.names="Geneid")
+
+# remove samples with low mapping success (ca 40%): ES_tworep8, ES_tworep7
+#additionally 2 samples were identified as outliers in the PCA and where thus removed (EN_tworep1, NS_seventeenrep1)
+Switch_1=Switch_1_all[ , -which(names(Switch_1_all) %in% c("ES_tworep8", "ES_tworep7", "EN_tworep1", "EN_tworep2", "NS_seventeenrep1", "NS_seventeenrep2", "Chr", "Start", "End", "Strand", "Length"))]
+
+
+#4 families, 1 larva per family
+#BioRep=Family
+Meta_1_all=read.csv("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Switch_1_Meta.csv", header=TRUE)
+Meta_1=Meta_1_all[ !(Meta_1_all$Sample) %in% c("EN_tworep1", "EN_tworep2", "NS_seventeenrep1", "NS_seventeenrep2"),]
+
+dim(Switch_1) # 21761   138
+dim(Meta_1) # 138  10
+```
+
+
+Switch 2 (i.e. Switch B)
+..........................
+The second Switch experiment was done using: Gooseberry, Salix and Nettle
+experimental design: 2 families, 2 individuals per families, sampling at two timepoints (2hrs and 17hrs)
+37 samples per timepoint
+
+```{r read in Switch 2}
+
+Switch_2_all=read.delim("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Gene_counts/Switch2/Count_S2.txt", row.names="Geneid")
+
+#two samples from family 3 were used to test the extraction protocol. Remove these samples!
+#additionally SN_tworep_1.2 and SN_tworep_1.2B and NG_tworep_2.2 were remmoved due to uncertainties of the sampling time. 
+Switch_2=Switch_2_all[, -which(names(Switch_2_all) %in% c("NS_seventeenrep_3.1", "NS_seventeenrep_3.2", "SN_tworep_1.2", "SN_tworep_1.2B", "NG_tworep_2.2", "Chr", "Start", "End", "Strand", "Length"))]
+
+
+#2 families, 2 larvae per family
+Meta_2_all=read.csv("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Switch_2_Meta.csv", header=TRUE)
+Meta_2=Meta_2_all[ !(Meta_2_all$Sample) %in% c("NS_seventeenrep_3.1", "NS_seventeenrep_3.2", "SN_tworep_1.2", "SN_tworep_1.2B", "NG_tworep_2.2"),]
+
+dim(Switch_2) #21761    69
+dim(Meta_2) # 69 16
+```
+
+##split data set by sampling time point (i.e. 2hrs and 17 hrs)
+
+```{r split by time}
+#Switch 1 2hrs
+#....................
+
+Switch_1_2=Switch_1[grep("two", names(Switch_1))]  #since I am selecting for columns with "two" in the title, Length, Chrom, etc. already removed
+dim(Switch_1_2)
+#68 samples, 21761 genes --> for this dataset samples were run twice --> need to be combined for analysis
+Meta_1_2=subset(Meta_1, Meta_1$Time=="2")
+nrow(Meta_1_2) #68
+
+Groups_1_2=factor(paste(Meta_1_2$Host1, Meta_1_2$Host2, Meta_1_2$Time, sep="."))
+Meta_1_2=cbind(Meta_1_2, Group=Groups_1_2)
+
+#Switch 1 17hrs
+#................
+Switch_1_17=Switch_1[grep("seventeen", names(Switch_1))]
+dim(Switch_1_17)
+#70 samples, 21761 genes (dataset 1 needs to be combined --> sum tech reps!)
+Meta_1_17=subset(Meta_1, Meta_1$Time=="17")
+nrow(Meta_1_17) #70
+Groups_1_17=factor(paste(Meta_1_17$Host1, Meta_1_17$Host2, Meta_1_17$Time, sep="."))
+Meta_1_17=cbind(Meta_1_17, Group=Groups_1_17)
+
+#Switch 2 2hrs
+#................
+Switch_2_2=Switch_2[grep("two", names(Switch_2))] #since I am selecting for columns with "two" in the title, Length, Chrom, etc. already removed
+ncol(Switch_2_2) #34
+dim(Switch_2_2)# 21761    34
+Meta_2_2=subset(Meta_2, Meta_2$Time=="2")
+nrow(Meta_2_2)#34
+Groups_2_2=factor(paste(Meta_2_2$Host1, Meta_2_2$Host2, Meta_2_2$Time, sep="."))
+table(Groups_2_2)
+Meta_2_2=cbind(Meta_2_2, Group=Groups_2_2)
+
+#Switch 2 17hrs
+#..................
+Switch_2_17=Switch_2[grep("seventeen", names(Switch_2))]
+ncol(Switch_2_17) #35
+dim(Switch_2_17) #21761    35
+Meta_2_17=subset(Meta_2, Meta_2$Time=="17")
+nrow(Meta_2_17)#35
+Groups_2_17=factor(paste(Meta_2_17$Host1, Meta_2_17$Host2, Meta_2_17$Time, sep="."))
+table(Groups_2_17)
+Meta_2_17=cbind(Meta_2_17, Group=Groups_2_17)
+
+```
+
+#4. Make differential gene expression list (DGE-list)
+
+edgeR stores data in a list; main components: counts (=matrix that contains integer counts), sample (containing info about samples or libraries), genes (annotation)
+
+```{r make DGE list}
+
+#Switch 1
+#............
+#for the first Switch experiment samples were sequenced twice, so we need to combine the samples. For this a separate Sample name was created in the meta-list. 
+#After creating the list, these samples can be combined based on common ID using sumTechReps 
+
+#2hrs
+S1_list_2=DGEList(counts=Switch_1_2, samples=Meta_1_2, group=Groups_1_2, genes=rownames(Switch_1_2))
+list_1_2=sumTechReps(S1_list_2, ID=Meta_1_2$SampleID)
+nrow(list_1_2) #21761
+
+#17hrs
+S1_list_17=DGEList(counts=Switch_1_17, samples=Meta_1_17, group=Groups_1_17, genes=rownames(Switch_1_17))
+list_1_17=sumTechReps(S1_list_17, ID=Meta_1_17$SampleID)
+nrow(list_1_17)
+
+#plot library size Switch 1
+
+par(mfrow=c(2,2))
+
+libs12=barplot(list_1_2$samples$lib.size*1e-6, names=1:ncol(list_1_2), ylim=c(0,30), ylab="library size in mio", xlab="sample", main="library size Switch A - 2hrs", cex.lab=1.3, cex.main=1.5 )
+mean(list_1_2$samples$lib.size*1e-6) #18.62058
+
+libs117=barplot(list_1_17$samples$lib.size*1e-6, names=1:ncol(list_1_17), ylim=c(0,30), ylab="library size in mio", xlab="sample", main="library size Switch A - 17hrs", cex.lab=1.3, cex.main=1.5 )
+mean(list_1_17$samples$lib.size*1e-6) #15.65437
+
+
+
+##Switch 2
+#...........
+
+#2hrs
+list_2_2=DGEList(counts=Switch_2_2, samples=Meta_2_2, group=Groups_2_2, genes=rownames(Switch_2_2))
+list_2_2$samples
+colnames(list_2_2)=Meta_2_2$Sample
+nrow(list_2_2) #21761
+list_2_2$samples$Host1=as.factor(list_2_2$samples$Host1)
+#list_2_2$samples$Host1=relevel(list_2_2$samples$Host1, ref="N")
+
+#17hrs
+list_2_17=DGEList(counts=Switch_2_17, samples=Meta_2_17, group=Groups_2_17, genes=rownames(Switch_2_17))
+list_2_17$samples
+colnames(list_2_17)=Meta_2_17$Sample
+nrow(list_2_17)
+
+#plot librarysize
+libs22=barplot(list_2_2$samples$lib.size*1e-6, names=1:ncol(list_2_2), ylim=c(0,30), ylab="library size in mio", xlab="sample", main="library size Switch B - 2hrs", cex.lab=1.3, cex.main=1.5 )
+mean(list_2_2$samples$lib.size*1e-6) #20.27938
+libs217=barplot(list_2_17$samples$lib.size*1e-6, names=1:ncol(list_2_17), ylim=c(0,30), ylab="library size in mio", xlab="sample", main="library size Switch B - 17hrs", cex.lab=1.3, cex.main=1.5 )
+mean(list_2_17$samples$lib.size*1e-6) #22.34895
+```
+
+
+#5. filtering and normalization 
+
+```{r filter and normalization}
+# https://www.biostars.org/p/430936/
+
+Group_1_2=list_1_2$samples$Group
+
+Group_1_17=list_1_17$samples$Group
+Group_2_2=list_2_2$samples$Group
+Group_2_17=list_2_17$samples$Group
+
+#Switch 1
+#..........
+
+#2hrs
+keep_1_2=filterByExpr(list_1_2, group=Group_1_2)
+table(keep_1_2)
+# FALSE  TRUE
+# 8635 13101
+list_1_2_filt=list_1_2[keep_1_2, keep.lib.sizes=FALSE]  #FALSE because library size is different for different samples
+
+list_1_2_norm = calcNormFactors(list_1_2_filt)
+list_1_2_filt$samples
+nrow(list_1_2_norm) #13101
+
+#17hrs
+keep_1_17=filterByExpr(list_1_17, group=Group_1_17)
+table(keep_1_17)
+# FALSE  TRUE
+# 8950 13075
+list_1_17_filt=list_1_17[keep_1_17, keep.lib.sizes=FALSE]  #FALSE because library size is different for different samples
+nrow(list_1_17_filt) #13075
+
+list_1_17_norm = calcNormFactors(list_1_17_filt)
+list_1_17_filt$samples
+nrow(list_1_17_norm) #13075
+
+
+#Switch 2
+#..........
+
+#2hrs
+keep_2_2=filterByExpr(list_2_2, group=Group_2_2)
+table(keep_2_2)
+# FALSE  TRUE
+#  8905 12856
+list_2_2_filt=list_2_2[keep_2_2, keep.lib.sizes=FALSE]  #FALSE because library size is different for different samples
+nrow(list_2_2_filt) #12856
+
+list_2_2_norm = calcNormFactors(list_2_2_filt)
+list_2_2_filt$samples
+nrow(list_2_2_norm) #12856
+
+
+#17hrs
+keep_2_17=filterByExpr(list_2_17, group=Group_2_17)
+table(keep_2_17)
+# FALSE  TRUE
+# 8851 12910
+list_2_17_filt=list_2_17[keep_2_17, keep.lib.sizes=FALSE]  #FALSE because library size is different for different samples
+nrow(list_2_17_filt) #12910
+
+list_2_17_norm = calcNormFactors(list_2_17_filt)
+list_2_17_filt$samples
+nrow(list_2_17_norm)#12910
+```
+
+
+##look at filtered and normalized data
+
+```{r preparation for data visualization}
+
+#color palette
+#Switch 1
+cb1 <- c("#4b1f6f", "#E69F00" ,"#999999" ) #for host plants;  E=purple , N=yellow, S=grey
+cb2<- c("#000000", "#117733" ,"#DDCC77", "#88CCEE") #family for Switch 1
+#Switch 2
+cbfam <- c("#007C7C", "#D55E00" ) # family
+cb3 <- c("#0072B2" ,"#999999", "#E69F00" ) #for host plants;  G=blue, N=yellow, S=grey
+```
+
+
+### data preparation for visualization
+Data were pseudo-log transformed
+
+```{r data transformation}
+
+#Switch 1
+pseudo_1_2=log2(cpm(list_1_2_norm)+1)
+pseudo_1_17=log2(cpm(list_1_17_norm)+1)
+
+#Switch 2
+pseudo_2_2=log2(cpm(list_2_2_norm)+1)
+pseudo_2_17=log2(cpm(list_2_17_norm)+1)
+
+
+```
+
+
+###Run and plot PCAs - Switch 1
+
+```{r PCAs}
+
+#Switch 1_2
+
+PCA_1_2_norm=prcomp(t(pseudo_1_2))
+PCA_1_2_norm_summary <- as.data.frame(t((summary(PCA_1_2_norm))$importance)) %>% rownames_to_column(var = "Principal Component")
+Scree_1_2_norm=
+  ggplot(PCA_1_2_norm_summary[1:6,], aes( x= `Principal Component`, y = `Proportion of Variance`)) +
+  geom_bar(stat = "identity", linewidth=2, fill="grey") +
+  labs(x = "Principal component", "Prop. of variance") +
+  geom_label(stat = "identity", aes(label = round(`Proportion of Variance`, 3)),position = position_stack(vjust = 1.0),size = 3) +
+  theme_classic(base_size = 10)+
+  ylim(0,0.45)
+
+summary(PCA_1_2_norm)
+#--> PC 1: 32.3%, PC 2: 12.6%, PC3=6.3%
+
+
+PCA_1_2_norm_df=data.frame(PCA_1_2_norm$x) #PCs are columns, samples are rows
+PCA_1_2_norm_df$plotx=PCA_1_2_norm_df[,1]
+PCA_1_2_norm_df$ploty=PCA_1_2_norm_df[,2]
+PCA_1_2_norm_df$plotz=PCA_1_2_norm_df[,3]
+
+#add Hostinformation
+#Switch 1 had technical replicates, these had to be combined in the DGE list, for the PCA, a separate 
+#Sheet with Meta_information, in which technical replicates were combined, was used ()
+Meta_1_2_sumRep=read.delim("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Meta_2_notechrep.txt")
+Meta_1_2_sumRep$Name=factor(paste(Meta_1_2_sumRep$Host1, Meta_1_2_sumRep$Host2, sep="."))
+Host=as.character(Meta_1_2_sumRep$Name)
+Host1_12=as.character(Meta_1_2_sumRep$Host1)
+Host2_12=as.character(Meta_1_2_sumRep$Host2)
+Fam=as.character(Meta_1_2_sumRep$BioRep)
+PCA_1_2_norm_df$Family=Fam
+#PCA_1_2_norm_df$Host1=Host1
+#PCA_1_2_norm_df$Host2=Host2
+
+
+Norm_1_2_12=ggplot(PCA_1_2_norm_df, aes(x=plotx,y=ploty))+
+  #geom_label()+
+  geom_point(size=4, aes(shape=Host1_12, color=Host2_12), alpha=0.5)+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch A - 2hrs -filt")+
+ # xlab ("PC1 [40.6%]") + ylab("PC2 [14.7%]")+
+  xlab ("PC1 [32.3%]") + ylab("PC2 [12.6%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb1)+
+  #scale_shape_manual(values=c(17, 19, 15))
+  scale_shape_manual(values=c(15, 16, 17))+
+  #stat_ellipse()
+  theme(legend.position = "none")
+  #labs(color="second Host")
+
+Norm_1_2_13=ggplot(PCA_1_2_norm_df, aes(x=plotx,y=plotz))+
+  geom_point(size=4, aes(shape=Host1_12, color=Host2_12), alpha=0.5)+
+ # geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch A - 2hrs -filt ")+
+  xlab ("PC1 [32.3%]") + ylab("PC3 [6.3%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb1)+
+  scale_shape_manual(values=c(15, 16, 17))+
+theme(legend.position = "none")
+
+Norm_1_2_12_fam=ggplot(PCA_1_2_norm_df, aes(x=plotx,y=ploty))+
+  geom_point(size=4, aes(color=Family), alpha=0.5)+
+  labs(color="Family")+
+ # geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch A - 2hrs -filt")+
+  #xlab ("PC1 [40.6%]") + ylab("PC2 [14.7%]")+
+  xlab ("PC1 [32.3%]") + ylab("PC2 [12.6%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb2)+
+  theme(legend.position = "none")
+
+
+Norm_1_2_13_fam=ggplot(PCA_1_2_norm_df, aes(x=plotx,y=plotz))+
+  geom_point(size=4, aes(color=Family), alpha=0.5)+
+  labs(color="Family")+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ( "Switch A - 2hrs -filt")+
+  xlab ("PC1 [32.3%]") + ylab("PC3 [6.3%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb2)+
+  labs(color="Family")+
+  theme(legend.position = "none")
+
+
+#Switch 1_17
+PCA_1_17_norm=prcomp(t(pseudo_1_17))
+
+PCA_1_17_norm_summary <- as.data.frame(t((summary(PCA_1_17_norm))$importance)) %>% rownames_to_column(var = "Principal Component")
+Scree_1_17_norm=
+  ggplot(PCA_1_17_norm_summary[1:6,], aes( x= `Principal Component`, y = `Proportion of Variance`)) +
+  geom_bar(stat = "identity", size=2, fill="grey") +
+  labs(x = "Principal component", "Prop. of variance") +
+  geom_label(stat = "identity", aes(label = round(`Proportion of Variance`, 3)),position = position_stack(vjust = 1.0),size = 3) +
+  theme_classic(base_size = 10)+
+  ylim(0,0.45)
+
+  summary(PCA_1_17_norm)
+  #--> PC 1: 39.8%, PC 2: 8.1%, PC3=7.4%
+
+PCA_1_17_norm_df=data.frame(PCA_1_17_norm$x) #PCs are columns, samples are rows
+PCA_1_17_norm_df$plotx=PCA_1_17_norm_df[,1]
+PCA_1_17_norm_df$ploty=PCA_1_17_norm_df[,2]
+PCA_1_17_norm_df$plotz=PCA_1_17_norm_df[,3]
+
+
+#add Hostinformation
+#Switch 1 had technical replicates, these had to be combined in the DGE list, for the PCA, a separate 
+#Sheet with Meta_information, in which technical replicates were combined, was used ()
+Meta_1_17_sumRep=read.delim("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Meta_1_17_notechrep.txt")
+Meta_1_17_sumRep$Name=factor(paste(Meta_1_17_sumRep$Host1, Meta_1_17_sumRep$Host2, sep="."))
+Host=as.character(Meta_1_17_sumRep$Name)
+Host1_17=as.character(Meta_1_17_sumRep$Host1)
+Host2_17=as.character(Meta_1_17_sumRep$Host2)
+PCA_1_17_norm_df$Name=Host
+Fam=as.character(Meta_1_17_sumRep$BioRep)
+PCA_1_17_norm_df$Family=Fam
+# PCA_1_17_norm_df$Host1=Host1
+# PCA_1_17_norm_df$Host2=Host2
+
+
+Norm_1_17_12=ggplot(PCA_1_17_norm_df, aes(x=plotx,y=ploty))+
+  #geom_label()
+  geom_point(size=4, aes(shape=Host1_17, color=Host2_17), alpha=0.5)+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch A - 17hrs -filt")+
+ # xlab ("PC1 [46.2%]") + ylab("PC2 [11.1%]")+
+  xlab ("PC1 [39.8%]") + ylab("PC2 [8.1%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb1)+
+  scale_shape_manual(values=c(15, 16, 17))+
+  theme(legend.position = "none")
+  #labs(color="second Host")
+
+Norm_1_17_13=ggplot(PCA_1_17_norm_df, aes(x=plotx,y=plotz))+
+  geom_point(size=4, aes(shape=Host1_17, color=Host2_17), alpha=0.5)+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch A - 17hrs -filt")+
+  xlab ("PC1 [39.8%]") + ylab("PC3 [7.4%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb1)+
+  scale_shape_manual(values=c(15, 16, 17))+
+    theme(legend.position = "none")
+
+Norm_1_17_12_fam=ggplot(PCA_1_17_norm_df, aes(x=plotx,y=ploty))+
+  geom_point(size=4, aes(color=Family), alpha=0.5)+
+  labs(color="Family")+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch A - 17 hrs -filt")+
+  #xlab ("PC1 [46.2%]") + ylab("PC2 [11.1%]")+
+  xlab ("PC1 [39.8%]") + ylab("PC2 [8.1%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb2)+
+  theme(legend.position = "none")+
+  labs(color="Family")
+
+Norm_1_17_13_fam=ggplot(PCA_1_17_norm_df, aes(x=plotx,y=plotz))+
+  geom_point(size=4, aes(color=Family), alpha=0.5)+
+  labs(color="Family")+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ( "Switch A - 17hrs -filt")+
+  xlab ("PC1 [39.8%]") + ylab("PC3 [7.4%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb2)+
+  labs(color="Family")+
+  theme(legend.position = "none")
+
+```
+
+###Run and plot PCAs - Switch 2
+
+```{r PCAs}
+
+#Switch 2_2
+
+PCA_2_2_norm=prcomp(t(pseudo_2_2))
+
+PCA_2_2_norm_summary <- as.data.frame(t((summary(PCA_2_2_norm))$importance)) %>% rownames_to_column(var = "Principal Component")
+Scree_2_2_norm=
+  ggplot(PCA_2_2_norm_summary[1:6,], aes( x= `Principal Component`, y = `Proportion of Variance`)) +
+  geom_bar(stat = "identity", size=2, fill="grey") +
+  labs(x = "Principal component", "Prop. of variance") +
+  geom_label(stat = "identity", aes(label = round(`Proportion of Variance`, 3)),position = position_stack(vjust = 1.0),size = 3) +
+  theme_classic(base_size = 10)+
+  ylim(0,0.45)
+
+  summary(PCA_2_2_norm)
+  #--> PC 1: 17.6%, PC 2: 13.1%, PC3=9.2%
+
+PCA_2_2_norm_df=data.frame(PCA_2_2_norm$x) #PCs are columns, samples are rows
+PCA_2_2_norm_df$plotx=PCA_2_2_norm_df[,1]
+PCA_2_2_norm_df$ploty=PCA_2_2_norm_df[,2]
+PCA_2_2_norm_df$plotz=PCA_2_2_norm_df[,3]
+
+
+#add Hostinformation
+Meta_2_2$Name=factor(paste(Meta_2_2$Host1_lat, Meta_2_2$Host2_lat, sep="."))
+Host=as.character(Meta_2_2$Name)
+Host1_2_2=as.character(Meta_2_2$Host1_lat)
+Host2_2_2=as.character(Meta_2_2$Host2_lat)
+PCA_2_2_norm_df$Name=Host
+Fam=as.character(Meta_2_2$Family)
+PCA_2_2_norm_df$Family=Fam
+# PCA_2_2_norm_df$Host1=Host1
+# PCA_2_2_norm_df$Host2=Host2
+
+Norm_2_2_12=ggplot(PCA_2_2_norm_df, aes(x=plotx,y=ploty))+
+  geom_point(size=4, aes(shape=Host1_2_2, color=Host2_2_2), alpha=0.5)+
+  labs(color="Host2")+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch B - 2hrs -filt")+
+  #xlab ("PC1 [25.5%]") + ylab("PC2 [12.4%]")+
+  xlab ("PC1 [17.6%]") + ylab("PC2 [13.1%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb3)+
+ # theme(legend.position = "none")+
+  labs(color="second Host")+
+  scale_shape_manual(values=c(18, 17,16))
+
+
+Norm_2_2_13=ggplot(PCA_2_2_norm_df, aes(x=plotx,y=plotz))+
+  geom_point(size=4, aes(shape=Host1_2_2, color=Host2_2_2),alpha=0.5)+
+  labs(color="Host2")+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch B -  2hrs -filt")+
+  xlab ("PC1 [17.6%]") + ylab("PC3 [9.2%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb3)+
+  labs(color="second Host")+
+  scale_shape_manual(values=c(18, 17,16))+
+  theme(legend.position = "none")
+
+Norm_2_2_12_fam=ggplot(PCA_2_2_norm_df, aes(x=plotx,y=ploty))+
+  geom_point(size=4, aes(color=Family), alpha=0.5)+
+  labs(color="Family")+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch B - 2hrs -filt")+
+  #xlab ("PC1 [25.5%]") + ylab("PC2 [12.4%]")+
+  xlab ("PC1 [17.6%]") + ylab("PC2 [13.1%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cbfam)+
+  theme(legend.position = "none")+
+  labs(color="Family")
+
+Norm_2_2_13_fam=ggplot(PCA_2_2_norm_df, aes(x=plotx,y=plotz))+
+  geom_point(size=4, aes(color=Family), alpha=0.5)+
+  labs(color="Family")+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ( "Switch B - 2hrs -filt")+
+  xlab ("PC1 [17.6%]") + ylab("PC3 [9.2%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cbfam)+
+  labs(color="Family")+
+  theme(legend.position = "none")
+
+
+#Switch 2_17
+
+PCA_2_17_norm=prcomp(t(pseudo_2_17))
+
+PCA_2_17_norm_summary <- as.data.frame(t((summary(PCA_2_17_norm))$importance)) %>% rownames_to_column(var = "Principal Component")
+Scree_2_17_norm=
+  ggplot(PCA_2_17_norm_summary[1:6,], aes( x= `Principal Component`, y = `Proportion of Variance`)) +
+  geom_bar(stat = "identity", size=2, fill="grey") +
+  labs(x = "Principal component", "Prop. of variance") +
+  geom_label(stat = "identity", aes(label = round(`Proportion of Variance`, 3)),position = position_stack(vjust = 1.0),size = 3) +
+  theme_classic(base_size = 10)+
+  ylim(0,0.45)
+
+  summary(PCA_2_17_norm)
+  #--> PC 1: 16.3%, PC 2: 14.1%, PC3=10.4%
+
+PCA_2_17_norm_df=data.frame(PCA_2_17_norm$x) #PCs are columns, samples are rows
+PCA_2_17_norm_df$plotx=PCA_2_17_norm_df[,1]
+PCA_2_17_norm_df$ploty=PCA_2_17_norm_df[,2]
+PCA_2_17_norm_df$plotz=PCA_2_17_norm_df[,3]
+
+
+#add Hostinformation
+Meta_2_17$Name=factor(paste(Meta_2_17$Host1_lat, Meta_2_17$Host2_lat, sep="."))
+Host=as.character(Meta_2_17$Name)
+Host1_2_17=as.character(Meta_2_17$Host1_lat)
+Host2_2_17=as.character(Meta_2_17$Host2_lat)
+PCA_2_17_norm_df$Name=Host
+Fam=as.character(Meta_2_17$Family)
+PCA_2_17_norm_df$Family=Fam
+# PCA_2_17_norm_df$Host1=Host1
+# PCA_2_17_norm_df$Host2=Host2
+
+Norm_2_17_12=ggplot(PCA_2_17_norm_df, aes(x=plotx,y=ploty))+
+  geom_point(size=4, aes(shape=Host1_2_17, color=Host2_2_17), alpha=0.5)+
+  labs(color="Host2")+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch B - 17hrs -filt")+
+  #xlab ("PC1 [25.1%]") + ylab("PC2 [12.5%]")+
+  xlab ("PC1 [16.3%]") + ylab("PC2 [14.1%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb3)+
+  theme(legend.position = "none")+
+  labs(color="second Host")+
+  scale_shape_manual(values=c(18, 17,16))
+
+Norm_2_17_13=ggplot(PCA_2_17_norm_df, aes(x=plotx,y=plotz))+
+  geom_point(size=4, aes(shape=Host1_2_17, color=Host2_2_17), alpha=0.5)+
+  labs(color="Host2")+
+ # geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch B - 17hrs -filt")+
+  xlab ("PC1 [16.3%]") + ylab("PC3 [10.4%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cb3)+
+  labs(color="second Host")+
+  scale_shape_manual(values=c(18, 17,16))+
+  theme(legend.position = "none")
+
+Norm_2_17_12_fam=ggplot(PCA_2_17_norm_df, aes(x=plotx,y=ploty))+
+  geom_point(size=4, aes(color=Family), alpha=0.5)+
+  #labs(color="Family")+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch B - 17hrs -filt")+
+ # xlab ("PC1 [25.1%]") + ylab("PC2 [12.5%]")+
+  xlab ("PC1 [16.3%]") + ylab("PC2 [14.1%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cbfam)+
+  theme(legend.position = "none")+
+  labs(color="Family")
+
+Norm_2_17_13_fam=ggplot(PCA_2_17_norm_df, aes(x=plotx,y=plotz))+
+  geom_point(size=4, aes(color=Family), alpha=0.5)+
+  labs(color="Family")+
+  #geom_text(hjust=0, vjust=0)+
+  ggtitle ("Switch B - 17hrs -filt")+
+  xlab ("PC1 [16.3%]") + ylab("PC3 [10.4%]")+
+  coord_fixed(ratio=1)+
+  theme_bw()+theme(aspect.ratio = 1)+theme(panel.grid=element_blank())+
+  scale_colour_manual(values=cbfam)+
+  labs(color="Family")+
+  theme(legend.position = "none")
+```
+
+
+### plot PCAs together
+```{r produce plots}
+#plot filtered PCA
+#PC1-2
+#------
+g1=ggarrange(Scree_1_2_norm, Scree_1_17_norm,
+          Norm_1_2_12, Norm_1_17_12,
+          Norm_1_2_12_fam, Norm_1_17_12_fam,
+          ncol=2, nrow=3)
+
+g2=ggarrange( Scree_2_2_norm, Scree_2_17_norm,
+              Norm_2_2_12, Norm_2_17_12,
+              Norm_2_2_12_fam, Norm_2_17_12_fam,
+             ncol=2, nrow=3)
+
+PC12_legend=ggarrange(g1, g2,ncol=2, nrow=1)
+
+PC12=ggarrange(g1, g2,ncol=2, nrow=1)
+plot(PC12)
+
+#ggsave("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/Figures_edited/PC12.pdf", PC12, device="pdf", height=25, width=32, units="cm", dpi=700)
+
+#PC1-3
+#---------
+
+g3=ggarrange(Scree_1_2_norm, Scree_1_17_norm,
+             Norm_1_2_13, Norm_1_17_13,
+             Norm_1_2_13_fam, Norm_1_17_13_fam,
+             ncol=2, nrow=3)
+
+g4=ggarrange( Scree_2_2_norm, Scree_2_17_norm,
+              Norm_2_2_13, Norm_2_17_13,
+              Norm_2_2_13_fam, Norm_2_17_13_fam,
+              ncol=2, nrow=3)
+
+PC13=ggarrange(g3, g4)
+plot(PC13)
+
+#ggsave("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/Figures_edited/PC13.pdf", PC13, device="pdf", height=25, width=32, units="cm", dpi=700)
+```
+
+
+###look at filtered and normalized data with ComplexHeatmap
+
+for this we will also use the pseudo-log transformed dataset
+we will look at the top 5000 most variant genes
+
+```{r Complex heatmap}
+
+top_var.12 <-names(sort(apply(pseudo_1_2, 1, var), decreasing = T))[1:5000]
+top_var.12 <- (pseudo_1_2[top_var.12,])
+
+top_var.117 <-names(sort(apply(pseudo_1_17, 1, var), decreasing = T))[1:5000]
+top_var.117 <- (pseudo_1_17[top_var.117,]) 
+
+top_var.22 <-names(sort(apply(pseudo_2_2, 1, var), decreasing = T))[1:5000]
+top_var.22 <- (pseudo_2_2[top_var.22,])
+
+top_var.217 <-names(sort(apply(pseudo_2_17, 1, var), decreasing = T))[1:5000]
+top_var.217 <- (pseudo_2_17[top_var.217,])
+
+cor_matrix_1_2=cor((top_var.12), method=c("pearson"))
+cor_matrix_1_17=cor((top_var.117), method=c("pearson"))
+cor_matrix_2_2=cor((top_var.22),  method=c("pearson"))
+cor_matrix_2_17=cor((top_var.217),  method=c("pearson"))
+
+``` 
+
+####prepare color palette
+```{r color palette for heatmap}
+nb.cols <- 18
+mycolorsS1 <- colorRampPalette(brewer.pal(8, "Purples"))(nb.cols)
+nb.cols <- 18
+mycolorsS2 <- colorRampPalette(brewer.pal(8, "Blues"))(nb.cols)
+```
+
+####Create Heatmaps
+
+```{r Switch 1 - annotation and heatmap}
+
+#Switch 1
+# 2 hours
+
+#add annotation
+
+# Ensure all sample names in the correlation matrix are present in the metadata
+sample_names_matrix_1_2 <- colnames(cor_matrix_1_2)
+sample_names_metadata_1_2 <- Meta_1_2_sumRep$SampleID
+
+if (!all(sample_names_matrix_1_2 %in% sample_names_metadata_1_2)) {
+  stop("Some sample names in the correlation matrix are not found in the metadata.")
+}
+
+# Ensure the order of samples in the metadata matches the order in the correlation matrix
+metadata_1_2 <- Meta_1_2_sumRep[match(sample_names_matrix_1_2, Meta_1_2_sumRep$SampleID), ]
+
+#make Host1 annotation
+Host1_names_1_2 <-Meta_1_2_sumRep$Host1
+unique_Host1_1_2=unique(Host1_names_1_2)
+Host1_colors_1_2=setNames(setNames(c("#4b1f6f", "#E69F00", "#999999"), 0.5), unique_Host1_1_2)
+
+# Verify the groups and create color mapping
+group_names_1_2 <- Meta_1_2_sumRep$Host2
+unique_groups_1_2 <- unique(group_names_1_2)
+group_colors_1_2 <- setNames(alpha(c("#4b1f6f", "#E69F00", "#999999"), 0.5), unique_groups_1_2)
+
+#make family annotation
+family_names_1_2 <-Meta_1_2_sumRep$BioRep
+unique_family_1_2=unique(family_names_1_2)
+family_colors_1_2=setNames(alpha(c("#000000", "#117733" ,"#DDCC77", "#88CCEE"), 0.5), unique_family_1_2)
+
+#Create the annotation object
+sample_annotation_H1_1_2 <- HeatmapAnnotation(
+  Group = Host1_names_1_2,
+  col = list(Group = Host1_colors_1_2),
+  annotation_name_side = "left",
+  annotation_legend_param = list(
+    Group = list(
+      title = "Host 1"
+    )))
+
+#Create the annotation object
+sample_annotation_1_2 <- HeatmapAnnotation(
+  Group = group_names_1_2,
+  col = list(Group = group_colors_1_2),
+  annotation_name_side = "left",
+  annotation_legend_param = list(
+    Group = list(
+      title = "Host 2"
+)))
+
+
+# Create the Family annotation
+family_annotation_1_2 <- HeatmapAnnotation(
+  Family = family_names_1_2,
+  col = list(Family = family_colors_1_2),
+  annotation_name_side = "left",
+  annotation_legend_param = list(
+    Family = list(
+      title = "Family"
+    ))
+)
+
+# Combine the annotations
+combined_annotations_1_2 <- HeatmapAnnotation(
+  df = data.frame(Host1=Host1_names_1_2, Group = group_names_1_2, Family = family_names_1_2),
+  col = list(Host1=Host1_colors_1_2, Group = group_colors_1_2, Family = family_colors_1_2),
+  which = "column",
+  annotation_name_side = "left"
+)
+
+#Heatmap_1_2
+H1=Heatmap(cor_matrix_1_2,
+          col =  mycolorsS1,
+          #col = viridis_pal,
+          cluster_columns = TRUE,
+          cluster_rows = TRUE,
+          show_heatmap_legend = TRUE,
+          column_title = "Switch A - 2 hours",
+          name="Correlation coefficient",
+          column_title_gp=grid::gpar(fontsize=16),
+          row_dend_width = unit(2.5, "cm"),
+          column_dend_height = unit(2.5, "cm"),
+          top_annotation = combined_annotations_1_2)
+
+
+
+
+#Switch 1
+#17 hours
+
+#add annotation
+
+# Ensure all sample names in the correlation matrix are present in the metadata
+sample_names_matrix_1_17 <- colnames(cor_matrix_1_17)
+sample_names_metadata_1_17 <- Meta_1_17_sumRep$SampleID
+
+    if (!all(sample_names_matrix_1_17 %in% sample_names_metadata_1_17)) {
+        stop("Some sample names in the correlation matrix are not found in the metadata.")
+        }
+
+# Ensure the order of samples in the metadata matches the order in the correlation matrix
+metadata_1_17 <- Meta_1_17_sumRep[match(sample_names_matrix_1_17, Meta_1_17_sumRep$SampleID), ]
+
+#make Host1 annotation
+Host1_names_1_17 <-Meta_1_17_sumRep$Host1
+unique_Host1_1_17=unique(Host1_names_1_17)
+Host1_colors_1_17=setNames(setNames(c("#4b1f6f", "#E69F00", "#999999"), 0.5), unique_Host1_1_17)
+
+# Verify the groups and create color mapping
+group_names_1_17 <- Meta_1_17_sumRep$Host2
+unique_groups_1_17 <- unique(group_names_1_17)
+group_colors_1_17 <- setNames(alpha(c("#4b1f6f", "#E69F00", "#999999"), 0.5), unique_groups_1_17)
+
+family_names_1_17 <-Meta_1_17_sumRep$BioRep
+unique_family_1_17=unique(family_names_1_17)
+family_colors_1_17=setNames(alpha(c("#000000", "#117733" ,"#DDCC77", "#88CCEE"), 0.5), unique_family_1_17)
+
+#Create the annotation object - Host 1
+sample_annotation_H1_1_17 <- HeatmapAnnotation(
+Group = Host1_names_1_17,
+col = list(Group = Host1_colors_1_17),
+annotation_name_side = "left",
+annotation_legend_param = list(
+Group = list(title = "Host 1"
+              )))
+
+#Create the annotation object - Host 2
+sample_annotation_1_17 <- HeatmapAnnotation(
+Group = group_names_1_17,
+col = list(Group = group_colors_1_17),
+annotation_name_side = "left",
+annotation_legend_param = list(
+              Group = list(
+                title = "Host 2"
+              )))
+
+# Create the Family annotation
+  family_annotation_1_17 <- HeatmapAnnotation(
+  Family = family_names_1_17,
+  col = list(Family = family_colors_1_17),
+  annotation_name_side = "left",
+  annotation_legend_param = list(
+  Family = list(
+  title = "Family"
+        )))
+
+
+# Combine the annotations
+combined_annotations_1_17 <- HeatmapAnnotation(
+df = data.frame(Host1=Host1_names_1_17, Group = group_names_1_17, Family = family_names_1_17),
+col = list(Host1=Host1_colors_1_17, Group = group_colors_1_17, Family = family_colors_1_17), 
+which = "column",annotation_name_side = "left")
+
+#Heatmap_1_17
+H2=Heatmap(cor_matrix_1_17,
+          col =  mycolorsS1,
+          cluster_columns = TRUE,
+          cluster_rows = TRUE,
+          show_heatmap_legend = TRUE,
+          column_title = "Switch A - 17 hours",
+          name="Correlation coefficient",
+          column_title_gp=grid::gpar(fontsize=16),
+          row_dend_width = unit(2.5, "cm"),
+          column_dend_height = unit(2.5, "cm"),
+          top_annotation = combined_annotations_1_17)
+
+```
+
+
+```{r Switch 2 - annotation and heatmap}
+
+
+#Switch 2
+#2 hours
+
+#add annotation
+# Ensure all sample names in the correlation matrix are present in the metadata
+sample_names_matrix_2_2 <- colnames(cor_matrix_2_2)
+sample_names_metadata_2_2 <- Meta_2_2$Sample
+if (!all(sample_names_matrix_2_2 %in% sample_names_metadata_2_2)) {
+stop("Some sample names in the correlation matrix are not found in the metadata.")
+ }
+
+# Ensure the order of samples in the metadata matches the order in the correlation matrix
+metadata_2_2 <- Meta_2_2[match(sample_names_matrix_2_2, Meta_2_2$Sample), ]
+
+#make Host1 annotation
+Host1_names_2_2 <-Meta_2_2$Host1
+unique_Host1_2_2=unique(Host1_names_2_2)
+Host1_colors_2_2=setNames(c("#0072B2", "#E69F00", "#999999"), unique_Host1_2_2)
+
+# Verify the groups and create color mapping
+group_names_2_2 <- Meta_2_2$Host2
+unique_groups_2_2 <- unique(group_names_2_2)
+group_colors_2_2 <- setNames(alpha(c("#0072B2", "#E69F00", "#999999"), 0.5), unique_groups_2_2)
+family_names_2_2 <-Meta_2_2$Family
+unique_family_2_2=unique(family_names_2_2)
+family_colors_2_2=setNames(alpha(c("#007C7C", "#D55E00"), 0.5), unique_family_2_2)
+
+#Create the annotation object
+sample_annotation_H1_2_2 <- HeatmapAnnotation(
+    Group = Host1_names_2_2,
+    col = list(Group = Host1_colors_2_2),
+    annotation_name_side = "left",
+    annotation_legend_param = list(
+    Group = list(
+    title = "Host 1"
+     )))
+
+
+sample_annotation_2_2 <- HeatmapAnnotation(
+  Group = group_names_2_2,
+  col = list(Group = group_colors_2_2),
+  annotation_name_side = "left",
+  annotation_legend_param = list(
+  Group = list(
+  title = "Host 2"
+   )))
+
+
+# Create the Family annotation
+family_annotation_2_2 <- HeatmapAnnotation(
+Family = family_names_2_2,
+col = list(Family = family_colors_2_2),
+annotation_name_side = "left",
+annotation_legend_param = list(
+Family = list(title = "Family")))
+
+# Combine the annotations
+combined_annotations_2_2 <- HeatmapAnnotation(
+df = data.frame(Host1= Host1_names_2_2, Group = group_names_2_2, Family = family_names_2_2),
+col = list(Host1=Host1_colors_2_2, Group = group_colors_2_2, Family = family_colors_2_2),
+which = "column",
+annotation_name_side = "left")
+
+#Heatmap_2_2
+H3=Heatmap(cor_matrix_2_2,
+  col =  mycolorsS2,
+  cluster_columns = TRUE,
+  cluster_rows = TRUE,
+  show_heatmap_legend = TRUE, 
+  column_title = "Switch B - 2 hours",
+  name="Correlation coefficient",
+  column_title_gp=grid::gpar(fontsize=16),
+  row_dend_width = unit(2.5, "cm"),
+  column_dend_height = unit(2.5, "cm"),                                
+  top_annotation = combined_annotations_2_2)
+
+
+# Switch 2
+# 17 hours
+
+
+#add annotation
+# Ensure all sample names in the correlation matrix are present in the metadata
+sample_names_matrix_2_17 <- colnames(cor_matrix_2_17)
+sample_names_metadata_2_17 <- Meta_2_17$Sample
+if (!all(sample_names_matrix_2_17 %in% sample_names_metadata_2_17)) {
+  stop("Some sample names in the correlation matrix are not found in the metadata.")
+                                }
+# Ensure the order of samples in the metadata matches the order in the correlation matrix
+metadata_2_17 <- Meta_2_17[match(sample_names_matrix_2_17, Meta_2_17$Sample), ]
+
+#make Host1 annotation
+Host1_names_2_17 <-Meta_2_17$Host1
+unique_Host1_2_17=unique(Host1_names_2_17)
+Host1_colors_2_17=setNames(c("#0072B2", "#E69F00", "#999999"), unique_Host1_2_17)
+
+
+# Verify the groups and create color mapping
+group_names_2_17 <- Meta_2_17$Host2
+unique_groups_2_17 <- unique(group_names_2_17)
+group_colors_2_17 <- setNames(alpha(c("#0072B2", "#E69F00", "#999999"), 0.5), unique_groups_2_17)
+family_names_2_17 <-Meta_2_17$Family                               
+unique_family_2_17=unique(family_names_2_17)
+family_colors_2_17=setNames(alpha(c("#007C7C", "#D55E00"), 0.5), unique_family_2_17)
+
+
+#Create the annotation object
+sample_annotation_H1_2_17 <- HeatmapAnnotation(
+Group = Host1_names_2_17,
+col = list(Group = Host1_colors_2_17),
+annotation_name_side = "left",
+annotation_legend_param = list(
+  Group = list(
+    title = "Host 1"
+    )))
+
+#Create the annotation object
+ sample_annotation_2_17 <- HeatmapAnnotation(
+   Group = group_names_2_17,
+   col = list(Group = group_colors_2_2),
+   annotation_name_side = "left",
+   annotation_legend_param = list(
+     Group = list(
+       title = "Host 2"
+       )))
+
+
+# Create the Family annotation
+ family_annotation_2_17 <- HeatmapAnnotation(
+   Family = family_names_2_17,
+   col = list(Family = family_colors_2_17),
+   annotation_name_side = "left",
+   annotation_legend_param = list(
+     Family = list(
+       title = "Family"
+       )))
+
+# Combine the annotations
+combined_annotations_2_17 <- HeatmapAnnotation(
+df = data.frame(Host1= Host1_names_2_17, Group = group_names_2_17, Family = family_names_2_17),
+col = list(Host1=Host1_colors_2_17, Group = group_colors_2_17, Family = family_colors_2_17),
+ which = "column",annotation_name_side = "left")
+
+#Heatmap_2_17
+H4=Heatmap(cor_matrix_2_17,
+           col =  mycolorsS2,
+           cluster_columns = TRUE,
+           cluster_rows = TRUE,
+           show_heatmap_legend = TRUE,
+           column_title = "Switch B - 17 hours",
+           name="Correlation coefficient",
+           column_title_gp=grid::gpar(fontsize=16),
+           row_dend_width = unit(2.5, "cm"),
+           column_dend_height = unit(2.5, "cm"),
+           top_annotation = combined_annotations_2_17)
+```
+
+###plot heatmaps together
+
+```{r plot heatmaps}
+
+H1_ggplot <- as.ggplot(H1)
+H2_ggplot <- as.ggplot(H2)
+H3_ggplot <- as.ggplot(H3)
+H4_ggplot <- as.ggplot(H4)
+
+HM=grid.arrange(H1_ggplot, H2_ggplot, H3_ggplot, H4_ggplot, ncol = 2)
+#ggsave("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/Figures_edited/Heatmaps.top5000_bothHosts.pdf", HM, device="pdf", height=20, width=20)
+```
+
+#6. Look at effect of individual hosts plants and/or their interaction on the number of differentially expressed genes
+
+````{r design model matrix}
+# https://support.bioconductor.org/p/56568 + edgeR User guide
+
+#Switch 1
+#............
+#2hrs
+Host1_1_2 <- list_1_2$samples$Host1
+Host2_1_2 <- list_1_2$samples$Host2
+Family_1_2 <-list_1_2$samples$BioRep
+Group_1_2<-list_1_2$samples$group
+
+int_eff_des_1_2 <- model.matrix(~ 1 + Family_1_2 + Host1_1_2 * Host2_1_2 ) #Family included as a random effect
+main_eff_des_1_2 <- model.matrix(~ 1 + Family_1_2+ Host1_1_2 + Host2_1_2)
+group_des_1_2<-model.matrix(~0+Family_1_2+Group_1_2)
+
+
+#17hrs
+Host1_1_17 <- list_1_17$samples$Host1
+Host2_1_17 <- list_1_17$samples$Host2
+Family_1_17 <-list_1_17$samples$BioRep
+Group_1_17<-list_1_17$samples$group
+
+int_eff_des_1_17 <- model.matrix(~ 1 + Family_1_17 + Host1_1_17 * Host2_1_17)
+main_eff_des_1_17 <- model.matrix(~ 1 + Family_1_17 + Host1_1_17 + Host2_1_17)
+group_des_1_17<-model.matrix(~0+Family_1_17+Group_1_17)
+
+#Switch 2
+#............
+#2hrs
+Host1_2_2 <- list_2_2$samples$Host1
+Host2_2_2 <- list_2_2$samples$Host2
+Family_2_2 <-list_2_2$samples$Family
+Group_2_2<-list_2_2$samples$group
+
+int_eff_des_2_2 <- model.matrix(~ 1+ Family_2_2 + Host1_2_2 * Host2_2_2 )
+main_eff_des_2_2 <- model.matrix(~ 1+ Family_2_2 + Host1_2_2 + Host2_2_2)
+group_des_2_2<-model.matrix(~0+Family_2_2+Group_2_2)
+
+
+#17hrs
+Host1_2_17 <- list_2_17$samples$Host1
+Host2_2_17 <- list_2_17$samples$Host2
+Family_2_17 <-list_2_17$samples$Family
+Group_2_17<-list_2_17$samples$group
+
+int_eff_des_2_17 <- model.matrix(~ 1 + Family_2_17 + Host1_2_17 * Host2_2_17)
+main_eff_des_2_17 <- model.matrix(~ 1 + Family_2_17 + Host1_2_17 + Host2_2_17)
+group_des_2_17<-model.matrix(~0+Family_2_17+Group_2_17)
+
+```
+
+## Estimate Dispersion
+```{r estimate dispersion}
+#Switch 1
+#..........
+
+#2hrs
+y.genes.filt.H1xH2_1_2 <- estimateDisp(list_1_2_norm, int_eff_des_1_2, robust=TRUE)
+y.genes.filt.H1andH2_1_2 <- estimateDisp(list_1_2_norm, main_eff_des_1_2, robust=TRUE)
+
+#17hrs
+y.genes.filt.H1xH2_1_17 <- estimateDisp(list_1_17_norm, int_eff_des_1_17, robust=TRUE)
+y.genes.filt.H1andH2_1_17 <- estimateDisp(list_1_17_norm, main_eff_des_1_17, robust=TRUE)
+
+#Switch 2
+#..........
+
+#2hrs
+y.genes.filt.H1xH2_2_2 <- estimateDisp(list_2_2_norm, int_eff_des_2_2, robust=TRUE)
+y.genes.filt.H1andH2_2_2 <- estimateDisp(list_2_2_norm, main_eff_des_2_2, robust=TRUE)
+
+#17hrs
+y.genes.filt.H1xH2_2_17 <- estimateDisp(list_2_17_norm, int_eff_des_2_17, robust=TRUE)
+y.genes.filt.H1andH2_2_17 <- estimateDisp(list_2_17_norm, main_eff_des_2_17, robust=TRUE)
+```
+
+
+## Quasilikelihood fit object
+```{r QL-Fit}
+#Switch 1
+#...........
+
+#2hrs
+fit.genes.filt.H1xH2_1_2 <- glmQLFit(y.genes.filt.H1xH2_1_2,int_eff_des_1_2, robust=TRUE)
+fit.genes.filt.H1andH2_1_2 <- glmQLFit(y.genes.filt.H1andH2_1_2,main_eff_des_1_2, robust=TRUE)
+
+#17hrs
+fit.genes.filt.H1xH2_1_17 <- glmQLFit(y.genes.filt.H1xH2_1_17,int_eff_des_1_17, robust=TRUE)
+fit.genes.filt.H1andH2_1_17 <- glmQLFit(y.genes.filt.H1andH2_1_17,main_eff_des_1_17, robust=TRUE)
+
+#Switch 2
+#...........
+
+#2hrs
+fit.genes.filt.H1xH2_2_2 <- glmQLFit(y.genes.filt.H1xH2_2_2,int_eff_des_2_2, robust=TRUE)
+fit.genes.filt.H1andH2_2_2 <- glmQLFit(y.genes.filt.H1andH2_2_2,main_eff_des_2_2, robust=TRUE)
+
+#17hrs
+fit.genes.filt.H1xH2_2_17 <- glmQLFit(y.genes.filt.H1xH2_2_17,int_eff_des_2_17, robust=TRUE)
+fit.genes.filt.H1andH2_2_17 <- glmQLFit(y.genes.filt.H1andH2_2_17,main_eff_des_2_17, robust=TRUE)
+```
+
+## glmQLFTest
+
+```{r FTest}
+#Switch 1 
+#............
+
+#2hrs
+qlf.genes.filt.H1xH2_interaction_1_2 <- glmQLFTest(fit.genes.filt.H1xH2_1_2, coef = 7:10 )
+qlf.genes.filt.H1andH2_H1_1_2 <- glmQLFTest(fit.genes.filt.H1andH2_1_2, coef = 3:4)
+qlf.genes.filt.H1andH2_H2_1_2 <- glmQLFTest(fit.genes.filt.H1andH2_1_2, coef = 5:6)
+
+qlf.genes_1_2 <- list()
+
+qlf.genes_1_2$interaction <- (topTags(qlf.genes.filt.H1xH2_interaction_1_2, Inf))$table %>% mutate(effect = "Int")
+qlf.genes_1_2$H1 <- (topTags(qlf.genes.filt.H1andH2_H1_1_2, Inf))$table %>% mutate(effect = "H1")
+qlf.genes_1_2$H2 <- (topTags(qlf.genes.filt.H1andH2_H2_1_2, Inf))$table %>% mutate(effect = "H2")
+
+length(qlf.genes_1_2$H1$FDR[qlf.genes_1_2$H1$FDR< 0.05])#507
+length(qlf.genes_1_2$H2$FDR[qlf.genes_1_2$H2$FDR< 0.05])#2
+length(qlf.genes_1_2$interaction$FDR[qlf.genes_1_2$interaction$FDR< 0.05])#41
+
+
+#17hrs
+qlf.genes.filt.H1xH2_interaction_1_17 <- glmQLFTest(fit.genes.filt.H1xH2_1_17, coef = 7:10 )
+qlf.genes.filt.H1andH2_H1_1_17 <- glmQLFTest(fit.genes.filt.H1andH2_1_17, coef = 3:4)
+qlf.genes.filt.H1andH2_H2_1_17 <- glmQLFTest(fit.genes.filt.H1andH2_1_17, coef = 5:6)
+
+qlf.genes_1_17 <- list()
+
+qlf.genes_1_17$interaction <- (topTags(qlf.genes.filt.H1xH2_interaction_1_17, Inf, adjust.method="BH"))$table %>% mutate(effect = "Int")
+qlf.genes_1_17$H1 <- (topTags(qlf.genes.filt.H1andH2_H1_1_17, Inf, adjust.method="BH"))$table %>% mutate(effect = "H1")
+qlf.genes_1_17$H2 <- (topTags(qlf.genes.filt.H1andH2_H2_1_17, Inf, adjust.method="BH"))$table %>% mutate(effect = "H2")
+
+length(qlf.genes_1_17$H1$FDR[qlf.genes_1_17$H1$FDR< 0.05])#234
+length(qlf.genes_1_17$H2$FDR[qlf.genes_1_17$H2$FDR< 0.05])#15
+length(qlf.genes_1_17$interaction$FDR[qlf.genes_1_17$interaction$FDR< 0.05])#0
+
+
+#Switch 2 
+#............
+
+#2hrs
+qlf.genes.filt.H1xH2_interaction_2_2 <- glmQLFTest(fit.genes.filt.H1xH2_2_2, coef = 7:10 )
+qlf.genes.filt.H1andH2_H1_2_2 <- glmQLFTest(fit.genes.filt.H1andH2_2_2, coef = 2:4)
+qlf.genes.filt.H1andH2_H2_2_2 <- glmQLFTest(fit.genes.filt.H1andH2_2_2, coef = 5:6)
+
+qlf.genes_2_2 <- list()
+
+qlf.genes_2_2$interaction <- (topTags(qlf.genes.filt.H1xH2_interaction_2_2, Inf))$table %>% mutate(effect = "Int")
+qlf.genes_2_2$H1 <- (topTags(qlf.genes.filt.H1andH2_H1_2_2, Inf))$table %>% mutate(effect = "H1")
+qlf.genes_2_2$H2 <- (topTags(qlf.genes.filt.H1andH2_H2_2_2, Inf))$table %>% mutate(effect = "H2")
+
+length(qlf.genes_2_2$H1$FDR[qlf.genes_2_2$H1$FDR< 0.05])
+length(qlf.genes_2_2$H2$FDR[qlf.genes_2_2$H2$FDR< 0.05])
+length(qlf.genes_2_2$interaction$FDR[qlf.genes_2_2$interaction$FDR< 0.05])
+
+#17hrs
+qlf.genes.filt.H1xH2_interaction_2_17 <- glmQLFTest(fit.genes.filt.H1xH2_2_17, coef = 7:10)
+qlf.genes.filt.H1andH2_H1_2_17 <- glmQLFTest(fit.genes.filt.H1andH2_2_17, coef = 3:4)
+qlf.genes.filt.H1andH2_H2_2_17 <- glmQLFTest(fit.genes.filt.H1andH2_2_17, coef = 5:6)
+
+qlf.genes_2_17 <- list()
+
+qlf.genes_2_17$interaction <- (topTags(qlf.genes.filt.H1xH2_interaction_2_17, Inf))$table %>% mutate(effect = "Int")
+qlf.genes_2_17$H1 <- (topTags(qlf.genes.filt.H1andH2_H1_2_17, Inf))$table %>% mutate(effect = "H1")
+qlf.genes_2_17$H2 <- (topTags(qlf.genes.filt.H1andH2_H2_2_17, Inf))$table %>% mutate(effect = "H2")
+
+length(qlf.genes_2_17$H1$FDR[qlf.genes_2_17$H1$FDR< 0.05])#365
+length(qlf.genes_2_17$H2$FDR[qlf.genes_2_17$H2$FDR< 0.05])#3783
+length(qlf.genes_2_17$interaction$FDR[qlf.genes_2_17$interaction$FDR< 0.05])#68
+
+```
+
+## Visualize effect of H1, H2, H1xH2
+```{r Venn_diagram H1, H2, H1xH2}
+pval_threshold=0.05
+
+#Switch 1
+
+interaction.degs_1_2=row.names(qlf.genes_1_2$interaction[which(qlf.genes_1_2$interaction$FDR<=pval_threshold),])
+H1.degs_1_2=row.names(qlf.genes_1_2$H1[which(qlf.genes_1_2$H1$FDR<=pval_threshold),])
+H2.degs_1_2=row.names(qlf.genes_1_2$H2[which(qlf.genes_1_2$H2$FDR<=pval_threshold),])
+
+interaction.degs_1_17=row.names(qlf.genes_1_17$interaction[which(qlf.genes_1_17$interaction$FDR<=pval_threshold),])
+H1.degs_1_17=row.names(qlf.genes_1_17$H1[which(qlf.genes_1_17$H1$FDR<=pval_threshold),])
+H2.degs_1_17=row.names(qlf.genes_1_17$H2[which(qlf.genes_1_17$H2$FDR<=pval_threshold),])
+
+S1_2=list(H1.degs_1_2, H2.degs_1_2, interaction.degs_1_2 )
+S1_17=list(H1.degs_1_17, H2.degs_1_17, interaction.degs_1_17)
+
+venn_1_2=ggVennDiagram(S1_2,
+                       label_alpha=0,
+                       category.names = c("H1", "H2", "H1xH2"), set_size=8,
+                       label_size = 6)+
+  #geom_sf_text(size=10)+
+  scale_color_manual(values = c("black","black","black"))+
+  ggplot2::scale_fill_gradient(low = "white", high = "grey")+
+  ggplot2::theme(legend.position="none")+
+  ggplot2::ggtitle("2 hrs")+
+  ggplot2::theme(plot.title=element_text(size=20, face="bold"))
+
+
+
+venn_1_17=ggVennDiagram(S1_17,
+                        label_alpha=0,
+                        category.names = c("H1", "H2", "H1xH2"), set_size=8,
+                        label_size = 6)+
+  #geom_sf_text(size=10)+
+  scale_color_manual(values = c("black","black","black"))+
+  ggplot2::scale_fill_gradient(low = "white", high = "grey")+
+  ggplot2::theme(legend.position="none")+
+  ggplot2::ggtitle(" hrs")+
+  ggplot2::theme(plot.title=element_text(size=20, face="bold"))
+
+
+#Switch 2
+
+interaction.degs_2_2=row.names(qlf.genes_2_2$interaction[which(qlf.genes_2_2$interaction$FDR<=pval_threshold),])
+H1.degs_2_2=row.names(qlf.genes_2_2$H1[which(qlf.genes_2_2$H1$FDR<=pval_threshold),])
+H2.degs_2_2=row.names(qlf.genes_2_2$H2[which(qlf.genes_2_2$H2$FDR<=pval_threshold),])
+
+interaction.degs_2_17=row.names(qlf.genes_2_17$interaction[which(qlf.genes_2_17$interaction$FDR<=pval_threshold),])
+H1.degs_2_17=row.names(qlf.genes_2_17$H1[which(qlf.genes_2_17$H1$FDR<=pval_threshold),])
+H2.degs_2_17=row.names(qlf.genes_2_17$H2[which(qlf.genes_2_17$H2$FDR<=pval_threshold),])
+
+S2_2=list(H1.degs_2_2, H2.degs_2_2, interaction.degs_2_2)
+S2_17=list(H1.degs_2_17, H2.degs_2_17, interaction.degs_2_17)
+
+venn_2_2=ggVennDiagram(S2_2,
+                       label_alpha=0,
+                       category.names = c("H1", "H2", "H1xH2"), set_size=8,
+                       label_size = 6)+
+  #geom_sf_text(size=10)+
+  scale_color_manual(values = c("black","black","black"))+
+  ggplot2::scale_fill_gradient(low = "white", high = "grey")+
+  ggplot2::theme(legend.position="none")+
+  ggplot2::ggtitle("2 hrs")+
+  ggplot2::theme(plot.title=element_text(size=20, face="bold"))
+
+
+venn_2_17=ggVennDiagram(S2_17,
+                        label_alpha=0,
+                        category.names = c("H1", "H2", "H1xH2"),set_size=8,
+                        label_size = 6)+
+  #geom_sf_text(size=10)+
+  scale_color_manual(values = c("black","black","black"))+
+  ggplot2::scale_fill_gradient(low = "white", high = "grey")+
+  ggplot2::theme(legend.position="none")+
+  ggplot2::ggtitle("17 hrs")+
+  ggplot2::theme(plot.title=element_text(size=20, face="bold"))
+
+ggarrange(venn_1_2, venn_1_17, venn_2_2, venn_2_17)
+
+# coloration was added with Affinity Designer
+
+
+#
+
+```
+
+
+# 7. Effect of treatment and host switches on the number of differentieally expressed genes
+## design model matrix
+
+```{r model matrix}
+# https://support.bioconductor.org/p/56568 + edgeR User guide
+
+#Switch 1
+#............
+#2hrs
+Family_1_2 <-list_1_2$samples$BioRep
+Group_1_2<-list_1_2_norm$samples$group
+group_des_1_2<-model.matrix(~0+Family_1_2+Group_1_2)
+
+#17hrs
+Family_1_17 <-list_1_17$samples$BioRep
+Group_1_17<-list_1_17_norm$samples$group
+group_des_1_17<-model.matrix(~0+Family_1_17+Group_1_17)
+
+
+#Switch 2
+#............
+#2hrs
+Family_2_2 <-list_2_2$samples$Family
+Group_2_2<-list_2_2_norm$samples$group
+group_des_2_2<-model.matrix(~0+Family_2_2+Group_2_2)
+
+#17hrs
+Family_2_17 <-list_2_17$samples$Family
+Group_2_17<-list_2_17_norm$samples$group
+group_des_2_17<-model.matrix(~0+Family_2_17+Group_2_17)
+
+```
+
+```{r Estimate Dispersion}
+#Switch 1
+#..........
+#2hrs
+y.genes.filt.group_1_2<-estimateDisp(list_1_2_norm, group_des_1_2, robust=TRUE)
+#17hrs
+y.genes.filt.group_1_17 <- estimateDisp(list_1_17_norm,group_des_1_17, robust=TRUE)
+
+#Switch 2
+#..........
+#2hrs
+y.genes.filt.group_2_2 <- estimateDisp(list_2_2_norm, group_des_2_2, robust=TRUE)
+#17hrs
+y.genes.filt.group_2_17 <- estimateDisp(list_2_17_norm, group_des_2_17, robust=TRUE)
+```
+
+```{r Quasilikelihood fit object}
+
+#Switch 1
+#...........
+#2hrs
+fit.genes.filt.group_1_2=glmQLFit(y.genes.filt.group_1_2, group_des_1_2, robust=TRUE)
+#17hrs
+fit.genes.filt.group_1_17=glmQLFit(y.genes.filt.group_1_17, group_des_1_17, robust=TRUE)
+
+
+#Switch 2
+#...........
+#2hrs
+fit.genes.filt.group_2_2=glmQLFit(y.genes.filt.group_2_2, group_des_2_2, robust=TRUE)
+
+#17hrs
+fit.genes.filt.group_2_17=glmQLFit(y.genes.filt.group_2_17, group_des_2_17, robust=TRUE)
+
+```
+
+```{r make contrasts}
+# to compare the different host switch treatments, the contrasts have to be given as a list
+
+#Switch 1
+#.............
+#2hrs
+
+colnames(group_des_1_2)
+# "Family_1_2"     "Group_1_2E.E.2" "Group_1_2E.N.2" "Group_1_2E.S.2" "Group_1_2N.E.2" "Group_1_2N.N.2" "Group_1_2N.S.2" "Group_1_2S.E.2" "Group_1_2S.N.2" "Group_1_2S.S.2"
+
+contrasts.S1_2 <-  makeContrasts(
+  Group_1_2N.N.2-Group_1_2S.S.2,
+  Group_1_2E.E.2-Group_1_2S.S.2,
+  Group_1_2N.N.2-Group_1_2E.E.2,
+
+  Group_1_2E.E.2-Group_1_2N.N.2,
+  Group_1_2S.S.2-Group_1_2E.E.2,
+  Group_1_2S.S.2-Group_1_2N.N.2,
+
+  Group_1_2N.N.2-Group_1_2S.N.2,
+  Group_1_2N.N.2-Group_1_2N.S.2,
+  Group_1_2N.N.2-Group_1_2N.E.2,
+  Group_1_2N.N.2-Group_1_2E.N.2,
+
+  Group_1_2S.S.2-Group_1_2N.S.2,
+  Group_1_2S.S.2-Group_1_2S.N.2,
+  Group_1_2S.S.2-Group_1_2E.S.2,
+  Group_1_2S.S.2-Group_1_2S.E.2,
+
+  Group_1_2E.E.2-Group_1_2E.S.2,
+  Group_1_2E.E.2-Group_1_2S.E.2,
+  Group_1_2E.E.2-Group_1_2N.E.2,
+  Group_1_2E.E.2-Group_1_2E.N.2,
+
+  levels=group_des_1_2)
+
+colnames(contrasts.S1_2) <- c("NNvSS", "EEvSS", "NNvEE", "EEvNN", "SSvEE", "SSvNN",
+                            "NNvSN", "NNvNS", "NNvNE","NNvEN",
+                             "SSvNS", "SSvSN", "SSvES", "SSvSE",
+                            "EEvES","EEvSE", "EEvNE", "EEvEN")
+
+#17hrs
+
+colnames(group_des_1_17)
+# "Family_1_17"      "Group_1_17E.E.17" "Group_1_17E.N.17" "Group_1_17E.S.17" "Group_1_17N.E.17" "Group_1_17N.N.17" "Group_1_17N.S.17" "Group_1_17S.E.17" "Group_1_17S.N.17" "Group_1_17S.S.17"
+
+contrasts.S1_17 <-  makeContrasts(
+  Group_1_17N.N.17-Group_1_17S.S.17,
+  Group_1_17E.E.17-Group_1_17S.S.17,
+  Group_1_17N.N.17-Group_1_17E.E.17,
+
+  Group_1_17E.E.17-Group_1_17N.N.17,
+  Group_1_17S.S.17-Group_1_17E.E.17,
+  Group_1_17S.S.17-Group_1_17N.N.17,
+
+  Group_1_17N.N.17-Group_1_17S.N.17,
+  Group_1_17N.N.17-Group_1_17N.S.17,
+  Group_1_17N.N.17-Group_1_17N.E.17,
+  Group_1_17N.N.17-Group_1_17E.N.17,
+
+  Group_1_17S.S.17-Group_1_17N.S.17,
+  Group_1_17S.S.17-Group_1_17S.N.17,
+  Group_1_17S.S.17-Group_1_17E.S.17,
+  Group_1_17S.S.17-Group_1_17S.E.17,
+
+  Group_1_17E.E.17-Group_1_17E.S.17,
+  Group_1_17E.E.17-Group_1_17S.E.17,
+  Group_1_17E.E.17-Group_1_17N.E.17,
+  Group_1_17E.E.17-Group_1_17E.N.17,
+
+  levels=group_des_1_17)
+
+colnames(contrasts.S1_17) <- c("NNvSS", "EEvSS", "NNvEE", "EEvNN", "SSvEE", "SSvNN",
+                              "NNvSN", "NNvNS", "NNvNE","NNvEN",
+                              "SSvNS", "SSvSN", "SSvES", "SSvSE",
+                              "EEvES","EEvSE", "EEvNE", "EEvEN")
+
+
+#Switch 2
+#.............
+#2hrs
+
+colnames(group_des_2_2)
+#"Family_2_2"     "Group_2_2G.G.2" "Group_2_2G.N.2" "Group_2_2G.S.2" "Group_2_2N.G.2" "Group_2_2N.N.2" "Group_2_2N.S.2" "Group_2_2S.G.2" "Group_2_2S.N.2" "Group_2_2S.S.2"
+
+contrasts.S2_2 <-  makeContrasts(
+  Group_2_2N.N.2-Group_2_2S.S.2,
+  Group_2_2G.G.2-Group_2_2S.S.2,
+  Group_2_2N.N.2-Group_2_2G.G.2,
+
+  Group_2_2G.G.2-Group_2_2N.N.2,
+  Group_2_2S.S.2-Group_2_2G.G.2,
+  Group_2_2S.S.2-Group_2_2N.N.2,
+
+  Group_2_2N.N.2-Group_2_2S.N.2,
+  Group_2_2N.N.2-Group_2_2N.S.2,
+  Group_2_2N.N.2-Group_2_2N.G.2,
+  Group_2_2N.N.2-Group_2_2G.N.2,
+
+  Group_2_2S.S.2-Group_2_2N.S.2,
+  Group_2_2S.S.2-Group_2_2S.N.2,
+  Group_2_2S.S.2-Group_2_2G.S.2,
+  Group_2_2S.S.2-Group_2_2S.G.2,
+
+  Group_2_2G.G.2-Group_2_2G.S.2,
+  Group_2_2G.G.2-Group_2_2S.G.2,
+  Group_2_2G.G.2-Group_2_2N.G.2,
+  Group_2_2G.G.2-Group_2_2G.N.2,
+
+
+  levels=group_des_2_2)
+
+colnames(contrasts.S2_2) <- c("NNvSS", "GGvSS", "NNvGG", "GGvNN", "SSvGG", "SSvNN",
+                              "NNvSN", "NNvNS", "NNvNG","NNvGN",
+                              "SSvNS", "SSvSN", "SSvGS", "SSvSG",
+                              "GGvGS","GGvSG", "GGvNG", "GGvGN")
+
+
+#17hrs
+
+colnames(group_des_2_17)
+#"Family_2_17"      "Group_2_17G.G.17" "Group_2_17G.N.17" "Group_2_17G.S.17" "Group_2_17N.G.17" "Group_2_17N.N.17" "Group_2_17N.S.17" "Group_2_17S.G.17""Group_2_17S.N.17" "Group_2_17S.S.17"
+
+contrasts.S2_17 <-  makeContrasts(
+  Group_2_17N.N.17-Group_2_17S.S.17,
+  Group_2_17G.G.17-Group_2_17S.S.17,
+  Group_2_17N.N.17-Group_2_17G.G.17,
+
+  Group_2_17G.G.17-Group_2_17N.N.17,
+  Group_2_17S.S.17-Group_2_17G.G.17,
+  Group_2_17S.S.17-Group_2_17N.N.17,
+
+  Group_2_17N.N.17-Group_2_17S.N.17,
+  Group_2_17N.N.17-Group_2_17N.S.17,
+  Group_2_17N.N.17-Group_2_17N.G.17,
+  Group_2_17N.N.17-Group_2_17G.N.17,
+
+  Group_2_17S.S.17-Group_2_17N.S.17,
+  Group_2_17S.S.17-Group_2_17S.N.17,
+  Group_2_17S.S.17-Group_2_17G.S.17,
+  Group_2_17S.S.17-Group_2_17S.G.17,
+
+  Group_2_17G.G.17-Group_2_17G.S.17,
+  Group_2_17G.G.17-Group_2_17S.G.17,
+  Group_2_17G.G.17-Group_2_17N.G.17,
+  Group_2_17G.G.17-Group_2_17G.N.17,
+
+  levels=group_des_2_17)
+
+colnames(contrasts.S2_17) <- c("NNvSS", "GGvSS", "NNvGG", "GGvNN", "SSvGG", "SSvNN",
+                              "NNvSN", "NNvNS", "NNvNG","NNvGN",
+                              "SSvNS", "SSvSN", "SSvGS", "SSvSG",
+                              "GGvGS","GGvSG", "GGvNG", "GGvGN")
+```
+
+
+```{r glmQLFTest}
+
+#SWITCH 1
+#Switch 1- 2hrs####
+DGE_1_2 <- list()
+DGE_1_2_gene <- list()
+
+for (i in 1:dim(contrasts.S1_2)[2]){
+  DGE_1_2[[i]]<- glmQLFTest(fit.genes.filt.group_1_2, contrast = contrasts.S1_2[,i])
+  names(DGE_1_2)[i] <- colnames(contrasts.S1_2)[i]
+  ngenes <- length(DGE_1_2[[i]]$genes$geneID)
+  DGE_1_2_gene[[i]] <- topTags(DGE_1_2[[i]], n = Inf, adjust.method = "BH")
+  names(DGE_1_2_gene)[i] <- colnames(contrasts.S1_2)[i]
+  DGE_1_2_gene[[i]]$table$contrast <- colnames(contrasts.S1_2)[i]
+  DGE_1_2_gene[[i]]$adjPvalBH <- p.adjust(p = DGE_1_2_gene[[i]]$P.Value, n = (ngenes*dim(contrasts.S1_2)[2]), method = "BH")
+}
+
+for(i in 1:length(DGE_1_2)){
+  print(summary(decideTestsDGE(DGE_1_2[[i]])))
+}
+
+#Switch 1- 17hrs
+DGE_1_17 <- list()
+DGE_1_17_gene <- list()
+
+for (i in 1:dim(contrasts.S1_17)[2]){
+  DGE_1_17[[i]]<- glmQLFTest(fit.genes.filt.group_1_17, contrast = contrasts.S1_17[,i])
+  names(DGE_1_17)[i] <- colnames(contrasts.S1_17)[i]
+  ngenes <- length(DGE_1_17[[i]]$genes$geneID)
+  DGE_1_17_gene[[i]] <- topTags(DGE_1_17[[i]], n = Inf, adjust.method = "BH")
+  names(DGE_1_17_gene)[i] <- colnames(contrasts.S1_17)[i]
+  DGE_1_17_gene[[i]]$table$contrast <- colnames(contrasts.S1_17)[i]
+}
+
+for(i in 1:length(DGE_1_17)){
+   print(summary(decideTestsDGE(DGE_1_17[[i]])))
+}
+
+
+#Switch 2- 2hrs
+ DGE_2_2 <- list()
+ DGE_2_2_gene <- list()
+
+ for (i in 1:dim(contrasts.S2_2)[2]){
+   DGE_2_2[[i]]<- glmQLFTest(fit.genes.filt.group_2_2, contrast = contrasts.S2_2[,i])
+   names(DGE_2_2)[i] <- colnames(contrasts.S2_2)[i]
+   ngenes <- length(DGE_2_2[[i]]$genes$geneID)
+   DGE_2_2_gene[[i]] <- topTags(DGE_2_2[[i]], n = Inf, adjust.method = "BH")
+   names(DGE_2_2_gene)[i] <- colnames(contrasts.S2_2)[i]
+   DGE_2_2_gene[[i]]$table$contrast <- colnames(contrasts.S2_2)[i]
+}
+
+
+ for(i in 1:length(DGE_2_2)){
+   print(summary(decideTestsDGE(DGE_2_2[[i]])))
+  }
+
+#Switch 2- 17hrs
+ DGE_2_17 <- list()
+  DGE_2_17_gene <- list()
+
+  for (i in 1:dim(contrasts.S2_17)[2]){
+    DGE_2_17[[i]]<- glmQLFTest(fit.genes.filt.group_2_17, contrast = contrasts.S2_17[,i])
+    names(DGE_2_17)[i] <- colnames(contrasts.S2_17)[i]
+    ngenes <- length(DGE_2_17[[i]]$genes$geneID)
+    DGE_2_17_gene[[i]] <- topTags(DGE_2_17[[i]], n = Inf, adjust.method = "BH")
+    names(DGE_2_17_gene)[i] <- colnames(contrasts.S2_17)[i]
+    DGE_2_17_gene[[i]]$table$contrast <- colnames(contrasts.S2_17)[i]
+  }
+
+
+  for(i in 1:length(DGE_2_17)){
+    print(summary(decideTestsDGE(DGE_2_17[[i]])))
+}
+```
+
+## Visualize differentially expressed genes
+```{r UpSetR Plot for significatly differentially expressed genes (FDR <0.05)}
+
+#note: N= Urtica dioica, S=Salix caprea, E=Ulmus glabra, G=Ribes uva crisp
+
+#Switch 1
+#join all data
+
+
+df12_1=dplyr::select(DGE_1_2_gene$NNvSS$table, genes, logFC_NNSS=logFC, FDR_NNSS=FDR)
+df12_2=dplyr::select(DGE_1_2_gene$EEvSS$table, genes, logFC_GGSS=logFC, FDR_EESS=FDR)
+df12_3=dplyr::select(DGE_1_2_gene$NNvEE$table, genes, logFC_NNGG=logFC, FDR_NNEE=FDR)
+df12_4=dplyr::select(DGE_1_2_gene$NNvSN$table, genes, logFC_NNSN=logFC, FDR_NNSN=FDR)
+df12_5=dplyr::select(DGE_1_2_gene$NNvNS$table, genes, logFC_NNNS=logFC, FDR_NNNS=FDR)
+df12_6=dplyr::select(DGE_1_2_gene$NNvNE$table, genes, logFC_NNNG=logFC, FDR_NNNE=FDR)
+df12_7=dplyr::select(DGE_1_2_gene$NNvEN$table, genes, logFC_NNGN=logFC, FDR_NNEN=FDR)
+df12_8=dplyr::select(DGE_1_2_gene$SSvNS$table, genes, logFC_SSNS=logFC, FDR_SSNS=FDR)
+df12_9=dplyr::select(DGE_1_2_gene$SSvSN$table, genes, logFC_SSSN=logFC, FDR_SSSN=FDR)
+df12_10=dplyr::select(DGE_1_2_gene$SSvES$table, genes, logFC_SSGS=logFC, FDR_SSES=FDR)
+df12_11=dplyr::select(DGE_1_2_gene$SSvSE$table, genes, logFC_SSSG=logFC, FDR_SSSE=FDR)
+df12_12=dplyr::select(DGE_1_2_gene$EEvES$table, genes, logFC_GGGS=logFC, FDR_EEES=FDR)
+df12_13=dplyr::select(DGE_1_2_gene$EEvSE$table, genes, logFC_GGSG=logFC, FDR_EESE=FDR)
+df12_14=dplyr::select(DGE_1_2_gene$EEvNE$table, genes, logFC_GGNG=logFC, FDR_EENE=FDR)
+df12_15=dplyr::select(DGE_1_2_gene$EEvEN$table, genes, logFC_GGGN=logFC, FDR_EEEN=FDR)
+df12_16=dplyr::select(DGE_1_2_gene$EEvNN$table, genes, logFC_GGNN=logFC, FDR_EENN=FDR)
+df12_17=dplyr::select(DGE_1_2_gene$SSvEE$table, genes, logFC_SSGG=logFC, FDR_SSEE=FDR)
+df12_18=dplyr::select(DGE_1_2_gene$SSvNN$table, genes, logFC_SSNN=logFC, FDR_SSNN=FDR)
+
+
+
+
+df12_list <- list(df12_1, df12_2, df12_3, df12_4, df12_5, df12_6, df12_7,
+                  df12_8, df12_9, df12_10, df12_11, df12_12, df12_13, df12_14, df12_15, df12_16, df12_17, df12_18)
+
+#merge all data frames together
+merge_12=Reduce(function(x, y) merge(x, y, all=TRUE), df12_list)
+
+DEG_FDR_12=list(
+  UdUdvScSc=merge_12[merge_12$FDR_NNSS<0.05,],
+  UgUgvScSc=merge_12[merge_12$FDR_EESS<0.05,],
+  UdUdvUgUg=merge_12[merge_12$FDR_NNEE<0.05,],
+  UdUdvScUd=merge_12[merge_12$FDR_NNSN<0.05,],
+  UdUdvUdSc=merge_12[merge_12$FDR_NNNS<0.05,],
+  UdUdvUdUg=merge_12[merge_12$FDR_NNNE<0.05,],
+  UdUdvUgUd=merge_12[merge_12$FDR_NNEN<0.05,],
+  ScScvUdSc=merge_12[merge_12$FDR_SSNS<0.05,],
+  ScScvScUd=merge_12[merge_12$FDR_SSSN<0.05,],
+  ScScvUgSc=merge_12[merge_12$FDR_SSES<0.05,],
+  ScScvScUg=merge_12[merge_12$FDR_SSSE<0.05,],
+  UgUgvUgSc=merge_12[merge_12$FDR_EEES<0.05,],
+  UgUgvScUg=merge_12[merge_12$FDR_EESE<0.05,],
+  UgUgvUdUg=merge_12[merge_12$FDR_EENE<0.05,],
+  UgUgvUgUd=merge_12[merge_12$FDR_EEEN<0.05,],
+  UgUgvUdUd=merge_12[merge_12$FDR_EENN<0.05,],
+  ScScvUgUg=merge_12[merge_12$FDR_SSEE<0.05,],
+  ScScvUdUd=merge_12[merge_12$FDR_SSNN<0.05,]
+)
+
+
+
+DEG_sig_12=list(
+  UdUd.v.ScSc=DEG_FDR_12$UdUdvScSc$genes,
+  UgUg.v.ScSc=DEG_FDR_12$UgUgvScSc$genes,
+  UdUd.v.UgUg=DEG_FDR_12$UdUdvUgUg$genes,
+  UdUd.v.ScUd=DEG_FDR_12$UdUdvScUd$genes,
+  UdUd.v.UdSc=DEG_FDR_12$UdUdvUdSc$genes,
+  UdUd.v.UdUg=DEG_FDR_12$UdUdvUdUg$genes,
+  UdUd.v.UgUd=DEG_FDR_12$UdUdvUgUd$genes,
+  ScSc.v.UdSc=DEG_FDR_12$ScScvUdSc$genes,
+  ScSc.v.ScUd=DEG_FDR_12$ScScvScUd$genes,
+  ScSc.v.UgSc=DEG_FDR_12$ScScvUgSc$genes,
+  ScSc.v.ScUg=DEG_FDR_12$ScScvScUg$genes,
+  UgUg.v.UgSc=DEG_FDR_12$UgUgvUgSc$genes,
+  UgUg.v.ScUg=DEG_FDR_12$UgUgvScUg$genes,
+  UgUg.v.UdUg=DEG_FDR_12$UgUgvUdUg$genes,
+  UgUg.v.UgUd=DEG_FDR_12$UgUgvUgUd$genes,
+  UgUg.v.UdUd=DEG_FDR_12$UgUgvUdUd$genes,
+  ScSc.v.UgUg=DEG_FDR_12$ScScvUgUg$genes,
+  ScSc.v.UdUd=DEG_FDR_12$ScScvUdUd$genes
+)
+
+
+#make upset plot
+#--------------------------
+N_1_12=upset(fromList(DEG_sig_12), sets = c( "UgUg.v.UgUd", "UgUg.v.UdUd", "ScSc.v.ScUd","ScSc.v.UdUd"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+             order.by = "freq", text.scale=1.5)
+
+N_cow_1_12=cowplot::plot_grid(NULL, N_1_12$Main_bar, N_1_12$Sizes, N_1_12$Matrix,
+                              nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+#Salix
+S_1_12=upset(fromList(DEG_sig_12), sets = c("UgUg.v.UgSc", "UgUg.v.ScSc","UdUd.v.UdSc","UdUd.v.ScSc"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+             order.by = "freq" ,text.scale=1.5)
+
+S_cow_1_12=cowplot::plot_grid(NULL, S_1_12$Main_bar, S_1_12$Sizes, S_1_12$Matrix,
+                              nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+#Ulmus
+E_1_12=upset(fromList(DEG_sig_12), sets = c("ScSc.v.ScUg", "ScSc.v.UgUg","UdUd.v.UdUg","UdUd.v.UgUg"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+             order.by = "freq",text.scale=1.5)
+
+E_cow_1_12=cowplot::plot_grid(NULL, E_1_12$Main_bar, E_1_12$Sizes,E_1_12$Matrix,
+                              nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+#Switch 1_17
+
+df117_1=dplyr::select(DGE_1_17_gene$NNvSS$table, genes, logFC_NNSS=logFC, FDR_NNSS=FDR)
+df117_2=dplyr::select(DGE_1_17_gene$EEvSS$table, genes, logFC_GGSS=logFC, FDR_EESS=FDR)
+df117_3=dplyr::select(DGE_1_17_gene$NNvEE$table, genes, logFC_NNGG=logFC, FDR_NNEE=FDR)
+df117_4=dplyr::select(DGE_1_17_gene$NNvSN$table, genes, logFC_NNSN=logFC, FDR_NNSN=FDR)
+df117_5=dplyr::select(DGE_1_17_gene$NNvNS$table, genes, logFC_NNNS=logFC, FDR_NNNS=FDR)
+df117_6=dplyr::select(DGE_1_17_gene$NNvNE$table, genes, logFC_NNNG=logFC, FDR_NNNE=FDR)
+df117_7=dplyr::select(DGE_1_17_gene$NNvEN$table, genes, logFC_NNGN=logFC, FDR_NNEN=FDR)
+df117_8=dplyr::select(DGE_1_17_gene$SSvNS$table, genes, logFC_SSNS=logFC, FDR_SSNS=FDR)
+df117_9=dplyr::select(DGE_1_17_gene$SSvSN$table, genes, logFC_SSSN=logFC, FDR_SSSN=FDR)
+df117_10=dplyr::select(DGE_1_17_gene$SSvES$table, genes, logFC_SSGS=logFC, FDR_SSES=FDR)
+df117_11=dplyr::select(DGE_1_17_gene$SSvSE$table, genes, logFC_SSSG=logFC, FDR_SSSE=FDR)
+df117_117=dplyr::select(DGE_1_17_gene$EEvES$table, genes, logFC_GGGS=logFC, FDR_EEES=FDR)
+df117_13=dplyr::select(DGE_1_17_gene$EEvSE$table, genes, logFC_GGSG=logFC, FDR_EESE=FDR)
+df117_14=dplyr::select(DGE_1_17_gene$EEvNE$table, genes, logFC_GGNG=logFC, FDR_EENE=FDR)
+df117_15=dplyr::select(DGE_1_17_gene$EEvEN$table, genes, logFC_GGGN=logFC, FDR_EEEN=FDR)
+df117_16=dplyr::select(DGE_1_17_gene$EEvNN$table, genes, logFC_GGNN=logFC, FDR_EENN=FDR)
+df117_17=dplyr::select(DGE_1_17_gene$SSvEE$table, genes, logFC_SSGG=logFC, FDR_SSEE=FDR)
+df117_18=dplyr::select(DGE_1_17_gene$SSvNN$table, genes, logFC_SSNN=logFC, FDR_SSNN=FDR)
+
+
+
+
+df117_list <- list(df117_1, df117_2, df117_3, df117_4, df117_5, df117_6, df117_7,
+                   df117_8, df117_9, df117_10, df117_11, df117_117, df117_13, df117_14, df117_15, df117_16, df117_17, df117_18)
+
+#merge all data frames together
+merge_117=Reduce(function(x, y) merge(x, y, all=TRUE), df117_list)
+
+DEG_FDR_117=list(
+  UdUdvScSc=merge_117[merge_117$FDR_NNSS<0.05,],
+  UgUgvScSc=merge_117[merge_117$FDR_EESS<0.05,],
+  UdUdvUgUg=merge_117[merge_117$FDR_NNEE<0.05,],
+  UdUdvScUd=merge_117[merge_117$FDR_NNSN<0.05,],
+  UdUdvUdSc=merge_117[merge_117$FDR_NNNS<0.05,],
+  UdUdvUdUg=merge_117[merge_117$FDR_NNNE<0.05,],
+  UdUdvUgUd=merge_117[merge_117$FDR_NNEN<0.05,],
+  ScScvUdSc=merge_117[merge_117$FDR_SSNS<0.05,],
+  ScScvScUd=merge_117[merge_117$FDR_SSSN<0.05,],
+  ScScvUgSc=merge_117[merge_117$FDR_SSES<0.05,],
+  ScScvScUg=merge_117[merge_117$FDR_SSSE<0.05,],
+  UgUgvUgSc=merge_117[merge_117$FDR_EEES<0.05,],
+  UgUgvScUg=merge_117[merge_117$FDR_EESE<0.05,],
+  UgUgvUdUg=merge_117[merge_117$FDR_EENE<0.05,],
+  UgUgvUgUd=merge_117[merge_117$FDR_EEEN<0.05,],
+  UgUgvUdUd=merge_117[merge_117$FDR_EENN<0.05,],
+  ScScvUgUg=merge_117[merge_117$FDR_SSEE<0.05,],
+  ScScvUdUd=merge_117[merge_117$FDR_SSNN<0.05,]
+)
+
+
+
+DEG_sig_117=list(
+  UdUd.v.ScSc=DEG_FDR_117$UdUdvScSc$genes,
+  UgUg.v.ScSc=DEG_FDR_117$UgUgvScSc$genes,
+  UdUd.v.UgUg=DEG_FDR_117$UdUdvUgUg$genes,
+  UdUd.v.ScUd=DEG_FDR_117$UdUdvScUd$genes,
+  UdUd.v.UdSc=DEG_FDR_117$UdUdvUdSc$genes,
+  UdUd.v.UdUg=DEG_FDR_117$UdUdvUdUg$genes,
+  UdUd.v.UgUd=DEG_FDR_117$UdUdvUgUd$genes,
+  ScSc.v.UdSc=DEG_FDR_117$ScScvUdSc$genes,
+  ScSc.v.ScUd=DEG_FDR_117$ScScvScUd$genes,
+  ScSc.v.UgSc=DEG_FDR_117$ScScvUgSc$genes,
+  ScSc.v.ScUg=DEG_FDR_117$ScScvScUg$genes,
+  UgUg.v.UgSc=DEG_FDR_117$UgUgvUgSc$genes,
+  UgUg.v.ScUg=DEG_FDR_117$UgUgvScUg$genes,
+  UgUg.v.UdUg=DEG_FDR_117$UgUgvUdUg$genes,
+  UgUg.v.UgUd=DEG_FDR_117$UgUgvUgUd$genes,
+  UgUg.v.UdUd=DEG_FDR_117$UgUgvUdUd$genes,
+  ScSc.v.UgUg=DEG_FDR_117$ScScvUgUg$genes,
+  ScSc.v.UdUd=DEG_FDR_117$ScScvUdUd$genes
+)
+
+#make upset plot
+N_1_17=upset(fromList(DEG_sig_117), sets = c( "UgUg.v.UgUd", "UgUg.v.UdUd", "ScSc.v.ScUd","ScSc.v.UdUd"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+             order.by = "freq", text.scale=1.5)
+
+N_cow_1_17=cowplot::plot_grid(NULL, N_1_17$Main_bar, N_1_17$Sizes, N_1_17$Matrix,
+                              nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+#Salix
+S_1_17=upset(fromList(DEG_sig_117), sets = c("UgUg.v.UgSc", "UgUg.v.ScSc","UdUd.v.UdSc","UdUd.v.ScSc"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+             order.by = "freq" ,text.scale=1.5)
+
+S_cow_1_17=cowplot::plot_grid(NULL, S_1_17$Main_bar, S_1_17$Sizes, S_1_17$Matrix,
+                              nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+#Ulmus
+E_1_17=upset(fromList(DEG_sig_117), sets = c("ScSc.v.ScUg", "ScSc.v.UgUg","UdUd.v.UdUg","UdUd.v.UgUg"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+             order.by = "freq",text.scale=1.5)
+
+E_cow_1_17=cowplot::plot_grid(NULL, E_1_17$Main_bar, E_1_17$Sizes, E_1_17$Matrix,
+                              nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+
+upset_1_17=grid.arrange(N_cow_1_17, S_cow_1_17, E_cow_1_17, ncol=1)
+
+#Switch 2_2
+
+df22_1=dplyr::select(DGE_2_2_gene$NNvSS$table, genes, logFC_NNSS=logFC, FDR_NNSS=FDR)
+df22_2=dplyr::select(DGE_2_2_gene$GGvSS$table, genes, logFC_GGSS=logFC, FDR_GGSS=FDR)
+df22_3=dplyr::select(DGE_2_2_gene$NNvGG$table, genes, logFC_NNGG=logFC, FDR_NNGG=FDR)
+df22_4=dplyr::select(DGE_2_2_gene$NNvSN$table, genes, logFC_NNSN=logFC, FDR_NNSN=FDR)
+df22_5=dplyr::select(DGE_2_2_gene$NNvNS$table, genes, logFC_NNNS=logFC, FDR_NNNS=FDR)
+df22_6=dplyr::select(DGE_2_2_gene$NNvNG$table, genes, logFC_NNNG=logFC, FDR_NNNG=FDR)
+df22_7=dplyr::select(DGE_2_2_gene$NNvGN$table, genes, logFC_NNGN=logFC, FDR_NNGN=FDR)
+df22_8=dplyr::select(DGE_2_2_gene$SSvNS$table, genes, logFC_SSNS=logFC, FDR_SSNS=FDR)
+df22_9=dplyr::select(DGE_2_2_gene$SSvSN$table, genes, logFC_SSSN=logFC, FDR_SSSN=FDR)
+df22_10=dplyr::select(DGE_2_2_gene$SSvGS$table, genes, logFC_SSGS=logFC, FDR_SSGS=FDR)
+df22_11=dplyr::select(DGE_2_2_gene$SSvSG$table, genes, logFC_SSSG=logFC, FDR_SSSG=FDR)
+df22_12=dplyr::select(DGE_2_2_gene$GGvGS$table, genes, logFC_GGGS=logFC, FDR_GGGS=FDR)
+df22_13=dplyr::select(DGE_2_2_gene$GGvSG$table, genes, logFC_GGSG=logFC, FDR_GGSG=FDR)
+df22_14=dplyr::select(DGE_2_2_gene$GGvNG$table, genes, logFC_GGNG=logFC, FDR_GGNG=FDR)
+df22_15=dplyr::select(DGE_2_2_gene$GGvGN$table, genes, logFC_GGGN=logFC, FDR_GGGN=FDR)
+df22_16=dplyr::select(DGE_2_2_gene$GGvNN$table, genes, logFC_GGNN=logFC, FDR_GGNN=FDR)
+df22_17=dplyr::select(DGE_2_2_gene$SSvGG$table, genes, logFC_SSGG=logFC, FDR_SSGG=FDR)
+df22_18=dplyr::select(DGE_2_2_gene$SSvNN$table, genes, logFC_SSNN=logFC, FDR_SSNN=FDR)
+
+
+
+
+df22_list <- list(df22_1, df22_2, df22_3, df22_4, df22_5, df22_6, df22_7,
+                  df22_8, df22_9, df22_10, df22_11, df22_12, df22_13, df22_14, df22_15, df22_16, df22_17, df22_18)
+
+#merge all data frames together
+merge_22=Reduce(function(x, y) merge(x, y, all=TRUE), df22_list)
+
+DEG_FDR_22=list(
+  UdUdvScSc=merge_22[merge_22$FDR_NNSS<0.05,],
+  RuRuvScSc=merge_22[merge_22$FDR_GGSS<0.05,],
+  UdUdvRuRu=merge_22[merge_22$FDR_NNGG<0.05,],
+  UdUdvScUd=merge_22[merge_22$FDR_NNSN<0.05,],
+  UdUdvUdSc=merge_22[merge_22$FDR_NNNS<0.05,],
+  UdUdvUdRu=merge_22[merge_22$FDR_NNNG<0.05,],
+  UdUdvRuUd=merge_22[merge_22$FDR_NNGN<0.05,],
+  ScScvUdSc=merge_22[merge_22$FDR_SSNS<0.05,],
+  ScScvScUd=merge_22[merge_22$FDR_SSSN<0.05,],
+  ScScvRuSc=merge_22[merge_22$FDR_SSGS<0.05,],
+  ScScvScRu=merge_22[merge_22$FDR_SSSG<0.05,],
+  RuRuvRuSc=merge_22[merge_22$FDR_GGGS<0.05,],
+  RuRuvScRu=merge_22[merge_22$FDR_GGSG<0.05,],
+  RuRuvUdRu=merge_22[merge_22$FDR_GGNG<0.05,],
+  RuRuvRuUd=merge_22[merge_22$FDR_GGGN<0.05,],
+  RuRuvUdUd=merge_22[merge_22$FDR_GGNN<0.05,],
+  ScScvRuRu=merge_22[merge_22$FDR_SSGG<0.05,],
+  ScScvUdUd=merge_22[merge_22$FDR_SSNN<0.05,]
+)
+
+
+
+DEG_sig_22=list(
+  UdUd.v.ScSc=DEG_FDR_22$UdUdvScSc$genes,
+  RuRu.v.ScSc=DEG_FDR_22$RuRuvScSc$genes,
+  UdUd.v.RuRu=DEG_FDR_22$UdUdvRuRu$genes,
+  UdUd.v.ScUd=DEG_FDR_22$UdUdvScUd$genes,
+  UdUd.v.UdSc=DEG_FDR_22$UdUdvUdSc$genes,
+  UdUd.v.UdRu=DEG_FDR_22$UdUdvUdRu$genes,
+  UdUd.v.RuUd=DEG_FDR_22$UdUdvRuUd$genes,
+  ScSc.v.UdSc=DEG_FDR_22$ScScvUdSc$genes,
+  ScSc.v.ScUd=DEG_FDR_22$ScScvScUd$genes,
+  ScSc.v.RuSc=DEG_FDR_22$ScScvRuSc$genes,
+  ScSc.v.ScRu=DEG_FDR_22$ScScvScRu$genes,
+  RuRu.v.RuSc=DEG_FDR_22$RuRuvRuSc$genes,
+  RuRu.v.ScRu=DEG_FDR_22$RuRuvScRu$genes,
+  RuRu.v.UdRu=DEG_FDR_22$RuRuvUdRu$genes,
+  RuRu.v.RuUd=DEG_FDR_22$RuRuvRuUd$genes,
+  RuRu.v.UdUd=DEG_FDR_22$RuRuvUdUd$genes,
+  ScSc.v.RuRu=DEG_FDR_22$ScScvRuRu$genes,
+  ScSc.v.UdUd=DEG_FDR_22$ScScvUdUd$genes
+)
+
+#make upset plots
+
+#Urtica
+N_2_2=upset(fromList(DEG_sig_22), sets = c( "RuRu.v.RuUd", "RuRu.v.UdUd", "ScSc.v.ScUd","ScSc.v.UdUd"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+             order.by = "freq", text.scale=1.5)
+
+N_cow_2_2=cowplot::plot_grid(NULL, N_2_2$Main_bar, N_2_2$Sizes, N_2_2$Matrix,
+                              nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+#Salix
+S_2_2=upset(fromList(DEG_sig_22), sets = c("RuRu.v.RuSc", "RuRu.v.ScSc","UdUd.v.UdSc","UdUd.v.ScSc"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+             order.by = "freq" ,text.scale=1.5)
+
+S_cow_2_2=cowplot::plot_grid(NULL, S_2_2$Main_bar, S_2_2$Sizes, S_2_2$Matrix,
+                              nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+#Ribes
+G_2_2=upset(fromList(DEG_sig_22), sets = c("ScSc.v.ScRu", "ScSc.v.RuRu","UdUd.v.UdRu","UdUd.v.RuRu"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+             order.by = "freq",text.scale=1.5)
+G_cow_2_2=cowplot::plot_grid(NULL, G_2_2$Main_bar, G_2_2$Sizes, G_2_2$Matrix,
+                              nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+
+upset_2_2=grid.arrange(N_cow_2_2, S_cow_2_2, G_cow_2_2, ncol=1)
+
+#Switch 2_17
+df217_1=dplyr::select(DGE_2_17_gene$NNvSS$table, genes, logFC_NNSS=logFC, FDR_NNSS=FDR)
+df217_2=dplyr::select(DGE_2_17_gene$GGvSS$table, genes, logFC_GGSS=logFC, FDR_GGSS=FDR)
+df217_3=dplyr::select(DGE_2_17_gene$NNvGG$table, genes, logFC_NNGG=logFC, FDR_NNGG=FDR)
+df217_4=dplyr::select(DGE_2_17_gene$NNvSN$table, genes, logFC_NNSN=logFC, FDR_NNSN=FDR)
+df217_5=dplyr::select(DGE_2_17_gene$NNvNS$table, genes, logFC_NNNS=logFC, FDR_NNNS=FDR)
+df217_6=dplyr::select(DGE_2_17_gene$NNvNG$table, genes, logFC_NNNG=logFC, FDR_NNNG=FDR)
+df217_7=dplyr::select(DGE_2_17_gene$NNvGN$table, genes, logFC_NNGN=logFC, FDR_NNGN=FDR)
+df217_8=dplyr::select(DGE_2_17_gene$SSvNS$table, genes, logFC_SSNS=logFC, FDR_SSNS=FDR)
+df217_9=dplyr::select(DGE_2_17_gene$SSvSN$table, genes, logFC_SSSN=logFC, FDR_SSSN=FDR)
+df217_10=dplyr::select(DGE_2_17_gene$SSvGS$table, genes, logFC_SSGS=logFC, FDR_SSGS=FDR)
+df217_11=dplyr::select(DGE_2_17_gene$SSvSG$table, genes, logFC_SSSG=logFC, FDR_SSSG=FDR)
+df217_12=dplyr::select(DGE_2_17_gene$GGvGS$table, genes, logFC_GGGS=logFC, FDR_GGGS=FDR)
+df217_13=dplyr::select(DGE_2_17_gene$GGvSG$table, genes, logFC_GGSG=logFC, FDR_GGSG=FDR)
+df217_14=dplyr::select(DGE_2_17_gene$GGvNG$table, genes, logFC_GGNG=logFC, FDR_GGNG=FDR)
+df217_15=dplyr::select(DGE_2_17_gene$GGvGN$table, genes, logFC_GGGN=logFC, FDR_GGGN=FDR)
+df217_16=dplyr::select(DGE_2_17_gene$GGvNN$table, genes, logFC_GGNN=logFC, FDR_GGNN=FDR)
+df217_17=dplyr::select(DGE_2_17_gene$SSvGG$table, genes, logFC_SSGG=logFC, FDR_SSGG=FDR)
+df217_18=dplyr::select(DGE_2_17_gene$SSvNN$table, genes, logFC_SSNN=logFC, FDR_SSNN=FDR)
+
+df217_list <- list(df217_1, df217_2, df217_3, df217_4, df217_5, df217_6, df217_7,
+                  df217_8, df217_9, df217_10, df217_11, df217_12, df217_13, df217_14, df217_15, df217_16, df217_17, df217_18)
+
+#merge all data frames together
+merge_217=Reduce(function(x, y) merge(x, y, all=TRUE), df217_list)
+
+DEG_FDR_217=list(
+  UdUdvScSc=merge_217[merge_217$FDR_NNSS<0.05,],
+  RuRuvScSc=merge_217[merge_217$FDR_GGSS<0.05,],
+  UdUdvRuRu=merge_217[merge_217$FDR_NNGG<0.05,],
+  UdUdvScUd=merge_217[merge_217$FDR_NNSN<0.05,],
+  UdUdvUdSc=merge_217[merge_217$FDR_NNNS<0.05,],
+  UdUdvUdRu=merge_217[merge_217$FDR_NNNG<0.05,],
+  UdUdvRuUd=merge_217[merge_217$FDR_NNGN<0.05,],
+  ScScvUdSc=merge_217[merge_217$FDR_SSNS<0.05,],
+  ScScvScUd=merge_217[merge_217$FDR_SSSN<0.05,],
+  ScScvRuSc=merge_217[merge_217$FDR_SSGS<0.05,],
+  ScScvScRu=merge_217[merge_217$FDR_SSSG<0.05,],
+  RuRuvRuSc=merge_217[merge_217$FDR_GGGS<0.05,],
+  RuRuvScRu=merge_217[merge_217$FDR_GGSG<0.05,],
+  RuRuvUdRu=merge_217[merge_217$FDR_GGNG<0.05,],
+  RuRuvRuUd=merge_217[merge_217$FDR_GGGN<0.05,],
+  RuRuvUdUd=merge_217[merge_217$FDR_GGNN<0.05,],
+  ScScvRuRu=merge_217[merge_217$FDR_SSGG<0.05,],
+  ScScvUdud=merge_217[merge_217$FDR_SSNN<0.05,]
+)
+
+
+
+DEG_sig_217=list(
+  UdUd.v.ScSc=DEG_FDR_217$UdUdvScSc$genes,
+  RuRu.v.ScSc=DEG_FDR_217$RuRuvScSc$genes,
+  UdUd.v.RuRu=DEG_FDR_217$UdUdvRuRu$genes,
+  UdUd.v.ScUd=DEG_FDR_217$UdUdvScUd$genes,
+  UdUd.v.UdSc=DEG_FDR_217$UdUdvUdSc$genes,
+  UdUd.v.UdRu=DEG_FDR_217$UdUdvUdRu$genes,
+  UdUd.v.RuUd=DEG_FDR_217$UdUdvRuUd$genes,
+  ScSc.v.UdSc=DEG_FDR_217$ScScvUdSc$genes,
+  ScSc.v.ScUd=DEG_FDR_217$ScScvScUd$genes,
+  ScSc.v.RuSc=DEG_FDR_217$ScScvRuSc$genes,
+  ScSc.v.ScRu=DEG_FDR_217$ScScvScRu$genes,
+  RuRu.v.RuSc=DEG_FDR_217$RuRuvRuSc$genes,
+  RuRu.v.ScRu=DEG_FDR_217$RuRuvScRu$genes,
+  RuRu.v.UdRu=DEG_FDR_217$RuRuvUdRu$genes,
+  RuRu.v.RuUd=DEG_FDR_217$RuRuvRuUd$genes,
+  RuRu.v.UdUd=DEG_FDR_217$RuRuvUdUd$genes,
+  ScSc.v.RuRu=DEG_FDR_217$ScScvRuRu$genes,
+  ScSc.v.UdUd=DEG_FDR_217$ScScvUdUd$genes
+)
+
+
+#make upset plot
+#Urtica
+N_2_17=upset(fromList(DEG_sig_217), sets = c( "RuRu.v.RuUd", "RuRu.v.UdUd", "ScSc.v.ScUd","ScSc.v.UdUd"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+            order.by = "freq", text.scale=1.5)
+
+N_cow_2_17=cowplot::plot_grid(NULL, N_2_17$Main_bar, N_2_17$Sizes, N_2_17$Matrix,
+             nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+
+#Salix
+S_2_17=upset(fromList(DEG_sig_217), sets = c("RuRu.v.RuSc", "RuRu.v.ScSc","UdUd.v.UdSc","UdUd.v.ScSc"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+            order.by = "freq" ,text.scale=1.5)
+
+S_cow_2_17=cowplot::plot_grid(NULL, S_2_17$Main_bar, S_2_17$Sizes, S_2_17$Matrix,
+            nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+#Ribes
+G_2_17=upset(fromList(DEG_sig_217), sets = c("ScSc.v.ScRu", "ScSc.v.RuRu","UdUd.v.UdRu","UdUd.v.RuRu"),keep.order=TRUE, mb.ratio = c(0.50, 0.50),
+            order.by = "freq",text.scale=1.5)
+
+G_cow_2_17=cowplot::plot_grid(NULL, G_2_17$Main_bar, G_2_17$Sizes, G_2_17$Matrix,
+            nrow=2, align="hv", rel_widths = c(0.4, 1), rel_heights = c(0.5,0.5))
+
+upset_2_17=grid.arrange(N_cow_2_17, S_cow_2_17, G_cow_2_17, ncol=1)
+```
+
+
+#8. Evaluation of differentially expressed genes
+
+plot genes differentially expressed in the comparison of Control vs Switch (e.g. UdUd-UdSc)
+Differentially expressed genes could either be:
+1. Differences in the gene expression after the host switch correspond to differences found between the controls, indicating an adjustment to the new host (green)
+2. No differences in gene expression after the switch despite differences between the controls, corresponding to the gene expression profiles on Host 1 (yellow)
+3. Differences in gene expression after the switch but no differences between the controls (blue)
+4. Differences in gene expression after the switch that are opposite to differences between controls (orange)
+5. not significantly differently expressed (grey)
+
+reference plot for expected differences was created with Inkscape
+
+Note: N=Urtica dioica, S=Salix caprea, E=Ulmus glabra, G=Ribes uva-crispa
+
+```{r scatterplots and GO-enrichtment analysis - Switch 1}
+
+####NNEE-NNNE####
+# 2hrs
+NNNE2=full_join(DGE_1_2_gene$NNvEE$table %>% dplyr::select( genes, logFC_NNvEE=logFC, FDR_NNvEE=FDR),
+                DGE_1_2_gene$NNvNE$table %>% dplyr::select( genes, logFC_NNvNE=logFC, FDR_NNvNE=FDR ))
+
+plotNNNE1_2=
+  ggplot()+
+  geom_point(data=NNNE2, aes(x=logFC_NNvEE, y=logFC_NNvNE),color="#999999", alpha=0.30)+
+  geom_point(data=NNNE2[NNNE2$FDR_NNvEE<0.05,], aes(x=logFC_NNvEE, y=logFC_NNvNE), color="#E6AB02", size=1)+ # no diff although expected --> "lag of plasticity", adjustment to host 1
+  geom_point(data=NNNE2[NNNE2$FDR_NNvNE<0.05,], aes(x=logFC_NNvEE, y=logFC_NNvNE), color="#3a538b", size=1)+  # diff that were not expected --> "stress" or transient plasticity
+  geom_point(data=NNNE2[NNNE2$FDR_NNvEE<0.05& NNNE2$FDR_NNvNE<0.05 & #diff as expected by Hx and Hy --> "host 2 specific"
+                          ((NNNE2$logFC_NNvEE < 0 & NNNE2$logFC_NNvNE < 0) |
+                             (NNNE2$logFC_NNvEE > 0 & NNNE2$logFC_NNvNE > 0)),],
+             aes(x=logFC_NNvEE, y=logFC_NNvNE), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=NNNE2[NNNE2$FDR_NNvEE<0.05 & NNNE2$FDR_NNvNE<0.05 &
+                          ((NNNE2$logFC_NNvEE < 0 & NNNE2$logFC_NNvNE > 0) |
+                             (NNNE2$logFC_NNvEE > 0 & NNNE2$logFC_NNvNE < 0)),],
+             aes(x=logFC_NNvEE, y=logFC_NNvNE ), color="#ef6c23", size=1)+   # slope = -1 line
+  labs(title="2hrs", x=(expression(paste("log FC Ud",bold("Ud"),"-Ug",bold("Ug")))), y=(expression(paste("log FC Ud",bold("Ud"),"-Ud",bold("Ug"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=NNNE2[NNNE2$FDR_NNvEE<0.05,] #7
+blue=NNNE2[NNNE2$FDR_NNvNE<0.05,] #0
+green=NNNE2[NNNE2$FDR_NNvEE<0.05& NNNE2$FDR_NNvNE<0.05,]#0  --> this code would also give differentially expressed genes that fall in category 4 (i.e.orange); to distinguish green from orange--> see line below
+orange=NNNE2[NNNE2$FDR_NNvEE<0.05 & NNNE2$FDR_NNvNE<0.05 & ((NNNE2$logFC_NNvEE < 0 & NNNE2$logFC_NNvNE > 0) |(NNNE2$logFC_NNvEE > 0 & NNNE2$logFC_NNvNE < 0)),] #0
+
+NNNE2_list=list(C2=yellow$genes)
+
+allResNNNE2 <- list()
+for (i in 1:1) {
+  candidate_list<- NNNE2_list[[i]]
+  annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"
+
+  
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResNNNE2[[i]] <- GenTable(myGOdata.bv,
+                               parentchildFisher = resultParentchild,
+                               orderBy = "parentchildFisher",
+                               topNodes = sum(resultParentchild@score < 1)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResNNNE2) <- names(NNNE2_list)
+
+
+write.xlsx(allResNNNE2, file="NNNE_GO_S1.xlsx", sheetName = "NNNE2_C2", col.names=TRUE, row.names=TRUE, append=FALSE) # the names of these files might need to be changed to Latin abbreviations
+
+
+allRes_plotsNNNE2 <-list()
+for(i in 1:1) {
+  allRes_plotsNNNE2[[i]] <- ggplot(head(allResNNNE2[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allRes_plotsNNNE2)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_NNNE2=ggarrange(plotlist = allRes_plotsNNNE2, ncol = 3, nrow = 1,labels=c("missing", "unexpected", "expected"), vjust=1 )
+annotate_figure(GO_NNNE2, top=text_grob("NNNE2"))
+
+
+#17 hrs
+
+NNNE17=NNNE17=full_join(DGE_1_17_gene$NNvEE$table %>% dplyr::select( genes, logFC_NNvEE=logFC, FDR_NNvEE=FDR),
+                        DGE_1_17_gene$NNvNE$table %>% dplyr::select( genes, logFC_NNvNE=logFC, FDR_NNvNE=FDR ))
+
+plotNNNE1_17=ggplot()+
+  geom_point(data=NNNE17, aes(x=logFC_NNvEE, y=logFC_NNvNE),color="#999999", alpha=0.30)+
+  geom_point(data=NNNE17[NNNE17$FDR_NNvEE<0.05,], aes(x=logFC_NNvEE, y=logFC_NNvNE), color="#E6AB02", size=1)+
+  geom_point(data=NNNE17[NNNE17$FDR_NNvNE<0.05,], aes(x=logFC_NNvEE, y=logFC_NNvNE), color="#3a538b", size=1)+
+  #  geom_point(data=NNNE17[NNNE17$FDR_NNvEE<0.05& NNNE17$FDR_NNvNE<0.05,], aes(x=logFC_NNvEE, y=logFC_NNvNE), color="#21a585")+
+  geom_point(data=NNNE17[NNNE17$FDR_NNvEE<0.05& NNNE17$FDR_NNvNE<0.05 & #diff as expected by Hx and Hy --> "host specific"
+                           ((NNNE17$logFC_NNvEE < 0 & NNNE17$logFC_NNvNE < 0) |
+                              (NNNE17$logFC_NNvEE > 0 & NNNE17$logFC_NNvNE > 0)),],
+             aes(x=logFC_NNvEE, y=logFC_NNvNE), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=NNNE17[NNNE17$FDR_NNvEE<0.05 & NNNE17$FDR_NNvNE<0.05 &
+                           ((NNNE17$logFC_NNvEE < 0 & NNNE17$logFC_NNvNE > 0) |
+                              (NNNE17$logFC_NNvEE > 0 & NNNE17$logFC_NNvNE < 0)),],
+             aes(x=logFC_NNvEE, y=logFC_NNvNE ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC Ud",bold("Ud"),"-Ug",bold("Ug")))), y=(expression(paste("log FC Ud",bold("Ud"),"-Ud",bold("Ug"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+  yellow=NNNE17[NNNE17$FDR_NNvEE<0.05,] #0
+  blue=NNNE17[NNNE17$FDR_NNvNE<0.05,] #3
+  green=NNNE17[NNNE17$FDR_NNvEE<0.05& NNNE17$FDR_NNvNE<0.05,]#0
+  orange=NNNE17[NNNE17$FDR_NNvEE<0.05 & NNNE17$FDR_NNvNE<0.05 & ((NNNE17$logFC_NNvEE < 0 & NNNE17$logFC_NNvNE > 0) |(NNNE17$logFC_NNvEE > 0 & NNNE17$logFC_NNvNE < 0)),] #0
+
+  NNNE17_list=list(C3=blue$genes)
+
+  allResNNNE17 <- list()
+  for (i in 1:1) {
+    candidate_list<- NNNE17_list[[i]]
+    annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+    # here I will be only analyzing GO terms with at least 5 members,
+    # as this yield more stable results.
+    node_size=5
+
+    # We will focus on Biological prmocess terms (BP)
+    GO_category="BP"
+    geneID2GO <- readMappings(annotation)
+    names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+    geneUniverse <- names(geneID2GO)
+
+    genesOfInterest.bv <- candidate_list
+
+    genesOfInterest.bv <- as.character(genesOfInterest.bv)
+    geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+    names(geneList.bv) <- geneUniverse
+
+    myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+    # STATS#
+    # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+    # and so reduces false positives due to the inheritance problem
+    resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+    allResNNNE17[[i]] <- GenTable(myGOdata.bv,
+                                  parentchildFisher = resultParentchild,
+                                  orderBy = "parentchildFisher",
+                                  topNodes = sum(resultParentchild@score < 1)) %>%
+      mutate(parentchildFisher = as.numeric(parentchildFisher))
+  }
+
+  names(allResNNNE17) <- names(NNNE17_list)
+
+
+  write.xlsx(allResNNNE17, file="NNNE_GO_S1.xlsx", sheetName = "NNNE17_C3", col.names=TRUE, row.names=TRUE, append=TRUE)
+
+  allRes_plotsNNNE17 <-list()
+  for(i in 1:1) {
+    allRes_plotsNNNE17[[i]] <- ggplot(head(allResNNNE17[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+      geom_point(aes(size = 100*Significant/Annotated))+
+      labs(title = names(allRes_plotsNNNE17)[i], x =expression('-log'[10]~'(p-value)'))+
+      theme(legend.position = "none")
+  }
+
+  GO_NNNE17=ggarrange(plotlist = allRes_plotsNNNE17, ncol = 3, nrow = 1,labels=c("missing", "unexpected", "expected"), vjust=1 )
+  annotate_figure(GO_NNNE17, top=text_grob("NNNE17"))
+
+
+#===========================================================================================
+#### EENN- EEEN####
+#2hrs
+EEEN12=full_join(DGE_1_2_gene$EEvNN$table %>% dplyr::select( genes, logFC_EEvNN=logFC, FDR_EEvNN=FDR),
+                 DGE_1_2_gene$EEvEN$table %>% dplyr::select( genes, logFC_EEvEN=logFC, FDR_EEvEN=FDR ))
+
+plotEEEN1_2=ggplot()+
+  geom_point(data=EEEN12, aes(x=logFC_EEvNN, y=logFC_EEvEN),color="#999999", alpha=0.30)+
+  geom_point(data=EEEN12[EEEN12$FDR_EEvNN<0.05,], aes(x=logFC_EEvNN, y=logFC_EEvEN), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=EEEN12[EEEN12$FDR_EEvEN<0.05,], aes(x=logFC_EEvNN, y=logFC_EEvEN), color="#3a538b", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=EEEN12[EEEN12$FDR_EEvNN<0.05 & EEEN12$FDR_EEvEN<0.05 &
+                           ((EEEN12$logFC_EEvNN < 0 & EEEN12$logFC_EEvEN < 0) |
+                              (EEEN12$logFC_EEvNN > 0 & EEEN12$logFC_EEvEN > 0)),],
+             aes(x=logFC_EEvNN, y=logFC_EEvEN), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=EEEN12[EEEN12$FDR_EEvNN<0.05 & EEEN12$FDR_EEvEN<0.05 &
+                           ((EEEN12$logFC_EEvNN < 0 & EEEN12$logFC_EEvEN > 0) |
+                              (EEEN12$logFC_EEvNN > 0 & EEEN12$logFC_EEvEN < 0)),],
+             aes(x=logFC_EEvNN, y=logFC_EEvEN ), color="#ef6c23", size=1)+
+  labs(title="2hrs", x=(expression(paste("log FC Ug",bold("Ug"),"-Ud",bold("Ud")))), y=(expression(paste("log FC Ug",bold("Ug"),"-Ug",bold("Ud"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=EEEN12[EEEN12$FDR_EEvNN<0.05,] #7
+blue=EEEN12[EEEN12$FDR_EEvEN<0.05,] #3304
+green=EEEN12[EEEN12$FDR_EEvNN<0.05& EEEN12$FDR_EEvEN<0.05,]#2
+green=EEEN12[EEEN12$FDR_EEvNN<0.05& EEEN12$FDR_EEvEN<0.05 & ((EEEN12$logFC_EEvNN < 0 & EEEN12$logFC_EEvEN < 0) |
+                           (EEEN12$logFC_EEvNN > 0 & EEEN12$logFC_EEvEN > 0)),] #0
+orange=EEEN12[EEEN12$FDR_EEvNN<0.05 & EEEN12$FDR_EEvEN<0.05 & ((EEEN12$logFC_EEvNN < 0 & EEEN12$logFC_EEvEN > 0) |(EEEN12$logFC_EEvNN > 0 & EEEN12$logFC_EEvEN < 0)),] #0
+
+
+EEEN12_list=list(C2=yellow$genes,
+                 C3=blue$genes)
+
+
+
+allResEEEN12 <- list()
+for (i in 1:2) {   
+  candidate_list<- EEEN12_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResEEEN12[[i]] <- GenTable(myGOdata.bv,
+                                parentchildFisher = resultParentchild ,
+                                orderBy = "parentchildFisher",
+                                topNodes = sum(resultParentchild@score < 1)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResEEEN12) <- names(EEEN12_list)
+
+write.xlsx(allResEEEN12$C2, file="EEEN_GO_A.xlsx", sheetName = "EEEN2_C2", col.names=TRUE, row.names=TRUE, append=FALSE)
+write.xlsx(allResEEEN12$C3, file="EEEN_GO_A.xlsx", sheetName = "EEEN2_C3", col.names=TRUE, row.names=TRUE, append=TRUE)
+
+
+
+allRes_plotsEEEN12 <-list()
+for(i in 1:2) {
+  allRes_plotsEEEN12[[i]] <- ggplot(head(allResEEEN12[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResEEEN12)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_EEEN12=ggarrange(plotlist = allRes_plotsEEEN12, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_EEEN12, top=text_grob("EEEN12"))
+
+#17hrs
+EEEN117=full_join(DGE_1_17_gene$EEvNN$table %>% dplyr::select( genes, logFC_EEvNN=logFC, FDR_EEvNN=FDR),
+                  DGE_1_17_gene$EEvEN$table %>% dplyr::select( genes, logFC_EEvEN=logFC, FDR_EEvEN=FDR ))
+
+plotEEEN1_17=ggplot()+
+  geom_point(data=EEEN117, aes(x=logFC_EEvNN, y=logFC_EEvEN),color="#999999", alpha=0.30)+
+  geom_point(data=EEEN117[EEEN117$FDR_EEvNN<0.05,], aes(x=logFC_EEvNN, y=logFC_EEvEN), color="#E6AB02", size=1)+
+  geom_point(data=EEEN117[EEEN117$FDR_EEvEN<0.05,], aes(x=logFC_EEvNN, y=logFC_EEvEN), color="#3a538b", size=1)+
+  geom_point(data=EEEN117[EEEN117$FDR_EEvNN<0.05& EEEN117$FDR_EEvEN<0.05 &
+                            ((EEEN117$logFC_EEvNN < 0 & EEEN117$logFC_EEvEN < 0) |
+                               (EEEN117$logFC_EEvNN > 0 & EEEN117$logFC_EEvEN > 0)),],
+             aes(x=logFC_EEvNN, y=logFC_EEvEN), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=EEEN117[EEEN117$FDR_EEvNN<0.05 & EEEN117$FDR_EEvEN<0.05 &
+                            ((EEEN117$logFC_EEvNN < 0 & EEEN117$logFC_EEvEN > 0) |
+                               (EEEN117$logFC_EEvNN > 0 & EEEN117$logFC_EEvEN < 0)),],
+             aes(x=logFC_EEvNN, y=logFC_EEvEN ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC Ug",bold("Ug"),"-Ud",bold("Ud")))), y=(expression(paste("log FC Ug",bold("Ug"),"-Ug",bold("Ud"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+
+  #17
+
+  yellow=EEEN117[EEEN117$FDR_EEvNN<0.05,] #0
+  blue=EEEN117[EEEN117$FDR_EEvEN<0.05,] #0
+  green=EEEN117[EEEN117$FDR_EEvNN<0.05& EEEN117$FDR_EEvEN<0.05,]#0
+
+  ### no significantly differentially expressed genes  --> so no Gene enrichment analysis possible/necessary
+
+
+#===========================================================================================
+####EESS-EEES####
+#2hrs
+
+EEES12=full_join(DGE_1_2_gene$EEvSS$table %>% dplyr::select( genes, logFC_EEvSS=logFC, FDR_EEvSS=FDR),
+                 DGE_1_2_gene$EEvES$table %>% dplyr::select( genes, logFC_EEvES=logFC, FDR_EEvES=FDR ))
+
+plotEEES1_2=ggplot()+
+  geom_point(data=EEES12, aes(x=logFC_EEvSS, y=logFC_EEvES),color="#999999", alpha=0.30)+
+  geom_point(data=EEES12[EEES12$FDR_EEvSS<0.05,], aes(x=logFC_EEvSS, y=logFC_EEvES), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=EEES12[EEES12$FDR_EEvES<0.05,], aes(x=logFC_EEvSS, y=logFC_EEvES), color="#3a538b", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=EEES12[EEES12$FDR_EEvSS<0.05& EEES12$FDR_EEvES<0.05 &
+                           ((EEES12$logFC_EEvSS < 0 & EEES12$logFC_EEvES < 0) |
+                              (EEES12$logFC_EEvSS > 0 & EEES12$logFC_EEvES > 0)),],
+             aes(x=logFC_EEvSS, y=logFC_EEvES), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=EEES12[EEES12$FDR_EEvSS<0.05 & EEES12$FDR_EEvES<0.05 &
+                           ((EEES12$logFC_EEvSS < 0 & EEES12$logFC_EEvES > 0) |
+                              (EEES12$logFC_EEvSS > 0 & EEES12$logFC_EEvES < 0)),],
+             aes(x=logFC_EEvSS, y=logFC_EEvES ), color="#ef6c23", size=1)+
+  labs(title="2hrs", x=(expression(paste("log FC Ug",bold("Ug"),"-Sc",bold("Sc")))), y=(expression(paste("log FC Ug",bold("Ug"),"-Ug",bold("Sc"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+#topGO
+
+yellow=EEES12[EEES12$FDR_EEvSS<0.05,] #5
+blue=EEES12[EEES12$FDR_EEvES<0.05,] #0
+green=EEES12[EEES12$FDR_EEvSS<0.05& EEES12$FDR_EEvES<0.05,]#0
+orange=EEES12[EEES12$FDR_EEvSS<0.05 & EEES12$FDR_EEvES<0.05 &
+                         ((EEES12$logFC_EEvSS < 0 & EEES12$logFC_EEvES > 0) |
+                            (EEES12$logFC_EEvSS > 0 & EEES12$logFC_EEvES < 0)),] #0
+EEES12_list=list(c2=yellow$genes)
+
+allResEEES12 <- list()
+for (i in 1:1) {
+  candidate_list<- EEES12_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResEEES12[[i]] <- GenTable(myGOdata.bv,
+                                parentchildFisher = resultParentchild ,
+                                orderBy = "parentchildFisher",
+                                topNodes = sum(resultParentchild@score < 0.05)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResEEES12) <- names(EEES12_list)
+
+write.xlsx(allResEEEN12$C2, file="EEES_GO_A.xlsx", sheetName = "EEES2_C2", col.names=TRUE, row.names=TRUE, append=FALSE)
+
+
+
+allRes_plotsEEES12 <-list()
+for(i in 1:1) {
+  allRes_plotsEEES12[[i]] <- ggplot(head(allResEEES12[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResEEES12)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_EEES12=ggarrange(plotlist = allRes_plotsEEES12, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_EEES12, top=text_grob("EEES12"))
+
+
+#17hrs
+EEES117=full_join(DGE_1_17_gene$EEvSS$table %>% dplyr::select( genes, logFC_EEvSS=logFC, FDR_EEvSS=FDR),
+                  DGE_1_17_gene$EEvES$table %>% dplyr::select( genes, logFC_EEvES=logFC, FDR_EEvES=FDR ))
+
+plotEEES1_17=ggplot()+
+  geom_point(data=EEES117, aes(x=logFC_EEvSS, y=logFC_EEvES),color="#999999", alpha=0.30)+
+  geom_point(data=EEES117[EEES117$FDR_EEvSS<0.05,], aes(x=logFC_EEvSS, y=logFC_EEvES), color="#E6AB02", size=1)+
+  geom_point(data=EEES117[EEES117$FDR_EEvES<0.05,], aes(x=logFC_EEvSS, y=logFC_EEvES), color="#3a538b", size=1)+
+  geom_point(data=EEES117[EEES117$FDR_EEvSS<0.05& EEES117$FDR_EEvES<0.05 &
+                            ((EEES117$logFC_EEvSS < 0 & EEES117$logFC_EEvES < 0) |
+                               (EEES117$logFC_EEvSS > 0 & EEES117$logFC_EEvES > 0)),],
+             aes(x=logFC_EEvSS, y=logFC_EEvES), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=EEES117[EEES117$FDR_EEvSS<0.05 & EEES117$FDR_EEvES<0.05 &
+                            ((EEES117$logFC_EEvSS < 0 & EEES117$logFC_EEvES > 0) |
+                               (EEES117$logFC_EEvSS > 0 & EEES117$logFC_EEvES < 0)),],
+             aes(x=logFC_EEvSS, y=logFC_EEvES ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC Ug",bold("Ug"),"-Sc",bold("Sc")))), y=(expression(paste("log FC Ug",bold("Ug"),"-Ug",bold("Sc"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+#topGO
+
+
+yellow=EEES117[EEES117$FDR_EEvSS<0.05,] #3
+blue=EEES117[EEES117$FDR_EEvES<0.05,] #0
+green=EEES117[EEES117$FDR_EEvSS<0.05& EEES117$FDR_EEvES<0.05,]#0
+orange=EEES117[EEES117$FDR_EEvSS<0.05 & EEES117$FDR_EEvES<0.05 &
+                 ((EEES117$logFC_EEvSS < 0 & EEES117$logFC_EEvES > 0) |
+                    (EEES117$logFC_EEvSS > 0 & EEES117$logFC_EEvES < 0)),]#0
+
+EEES117_list=list(c2=yellow$genes)
+
+
+allResEEES117 <- list()
+for (i in 1:1) {
+  candidate_list<- EEES117_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResEEES117[[i]] <- GenTable(myGOdata.bv,
+                                 parentchildFisher = resultParentchild ,
+                                 orderBy = "parentchildFisher",
+                                 topNodes = sum(resultParentchild@score < 0.05)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResEEES117) <- names(EEES117_list)
+
+write.xlsx(allResEEES117$c2, file="EEES_GO_A.xlsx", sheetName = "EEES17_c2", col.names = TRUE, row.names = TRUE, append = TRUE)
+
+
+allRes_plotsEEES117 <-list()
+for(i in 1:1) {
+  allRes_plotsEEES117[[i]] <- ggplot(head(allResEEES117[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResEEES117)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_EEES117=ggarrange(plotlist = allRes_plotsEEES117, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_EEES117, top=text_grob("EEES117"))
+
+
+
+#===========================================================================================
+#### SSEE - SSSE ####
+#2hr
+
+SSSE2=full_join(DGE_1_2_gene$SSvEE$table %>% dplyr::select( genes, logFC_SSvEE=logFC, FDR_SSvEE=FDR),
+                DGE_1_2_gene$SSvSE$table %>% dplyr::select( genes, logFC_SSvSE=logFC, FDR_SSvSE=FDR ))
+
+plotSSSE1_2=ggplot()+
+  geom_point(data=SSSE2, aes(x=logFC_SSvEE, y=logFC_SSvSE),color="#999999", alpha=0.30)+
+  geom_point(data=SSSE2[SSSE2$FDR_SSvEE<0.05,], aes(x=logFC_SSvEE, y=logFC_SSvSE), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=SSSE2[SSSE2$FDR_SSvSE<0.05,], aes(x=logFC_SSvEE, y=logFC_SSvSE), color="#3a538b", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=SSSE2[SSSE2$FDR_SSvEE<0.05& SSSE2$FDR_SSvSE<0.05 &
+                          ((SSSE2$logFC_SSvEE < 0 & SSSE2$logFC_SSvSE < 0) |
+                             (SSSE2$logFC_SSvEE > 0 & SSSE2$logFC_SSvSE > 0)),],
+             aes(x=logFC_SSvEE, y=logFC_SSvSE), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=SSSE2[SSSE2$FDR_SSvEE<0.05 & SSSE2$FDR_SSvSE<0.05 &
+                          ((SSSE2$logFC_SSvEE < 0 & SSSE2$logFC_SSvSE > 0) |
+                             (SSSE2$logFC_SSvEE > 0 & SSSE2$logFC_SSvSE < 0)),],
+             aes(x=logFC_SSvEE, y=logFC_SSvSE ), color="#ef6c23", size=1)+
+  labs(title="2hrs", x=(expression(paste("log FC Sc",bold("Sc"),"-Ug",bold("Ug")))), y=(expression(paste("log FC Sc",bold("Sc"),"-Sc",bold("Ug"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=SSSE2[SSSE2$FDR_SSvEE<0.05,] #5
+blue=SSSE2[SSSE2$FDR_SSvSE<0.05,] #0
+green=SSSE2[SSSE2$FDR_SSvEE<0.05& SSSE2$FDR_SSvSE<0.05,]#0
+orange=SSSE2[SSSE2$FDR_SSvEE<0.05 & SSSE2$FDR_SSvSE<0.05 &
+               ((SSSE2$logFC_SSvEE < 0 & SSSE2$logFC_SSvSE > 0) |
+                  (SSSE2$logFC_SSvEE > 0 & SSSE2$logFC_SSvSE < 0)),] #0
+
+SSSE2_list=list(c2=yellow$genes)
+
+
+allResSSSE2 <- list()
+for (i in 1:1) {
+  candidate_list<- SSSE2_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResSSSE2[[i]] <- GenTable(myGOdata.bv,
+                               parentchildFisher = resultParentchild ,
+                               orderBy = "parentchildFisher",
+                               topNodes = sum(resultParentchild@score < 0.05)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResSSSE2) <- names(SSSE2_list)
+
+write.xlsx(allResSSSE2$c2, file="SSSE_GO_A.xlsx", sheetName = "SSSE2_C2", col.names = TRUE, row.names = TRUE, append = FALSE)
+
+
+allRes_plotsSSSE2 <-list()
+for(i in 1:1) {
+  allRes_plotsSSSE2[[i]] <- ggplot(head(allResSSSE2[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResSSSE2)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_SSSE2=ggarrange(plotlist = allRes_plotsSSSE2, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_SSSE2, top=text_grob("SSSE2"))
+
+
+#17
+yellow=SSSE17[SSSE17$FDR_SSvEE<0.05,] #3
+blue=SSSE17[SSSE17$FDR_SSvSE<0.05,] #0
+green=SSSE17[SSSE17$FDR_SSvEE<0.05& SSSE17$FDR_SSvSE<0.05,]#0
+
+SSSE17_list=list(c2=yellow$genes)
+
+
+#17hrs
+SSSE17=full_join(DGE_1_17_gene$SSvEE$table %>% dplyr::select( genes, logFC_SSvEE=logFC, FDR_SSvEE=FDR),
+                 DGE_1_17_gene$SSvSE$table %>% dplyr::select( genes, logFC_SSvSE=logFC, FDR_SSvSE=FDR ))
+
+plotSSSE1_17=ggplot()+
+  geom_point(data=SSSE17, aes(x=logFC_SSvEE, y=logFC_SSvSE),color="#999999", alpha=0.30)+
+  geom_point(data=SSSE17[SSSE17$FDR_SSvEE<0.05,], aes(x=logFC_SSvEE, y=logFC_SSvSE), color="#E6AB02", size=1)+
+  geom_point(data=SSSE17[SSSE17$FDR_SSvSE<0.05,], aes(x=logFC_SSvEE, y=logFC_SSvSE), color="#3a538b", size=1)+
+  geom_point(data=SSSE17[SSSE17$FDR_SSvEE<0.05& SSSE17$FDR_SSvSE<0.05&
+                           ((SSSE17$logFC_SSvEE < 0 & SSSE17$logFC_SSvSE < 0) |
+                              (SSSE17$logFC_SSvEE > 0 & SSSE17$logFC_SSvSE > 0)),],
+             aes(x=logFC_SSvEE, y=logFC_SSvSE), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=SSSE17[SSSE17$FDR_SSvEE<0.05 & SSSE17$FDR_SSvSE<0.05 &
+                           ((SSSE17$logFC_SSvEE < 0 & SSSE17$logFC_SSvSE > 0) |
+                              (SSSE17$logFC_SSvEE > 0 & SSSE17$logFC_SSvSE < 0)),],
+             aes(x=logFC_SSvEE, y=logFC_SSvSE ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC Sc",bold("Sc"),"-Ug",bold("Ug")))), y=(expression(paste("log FC Sc",bold("Sc"),"-Sc",bold("Ug"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=SSSE17[SSSE17$FDR_SSvEE<0.05,] #3
+blue=SSSE17[SSSE17$FDR_SSvSE<0.05,] #0
+green=SSSE17[SSSE17$FDR_SSvEE<0.05& SSSE17$FDR_SSvSE<0.05,]#0
+orange=SSSE17[SSSE17$FDR_SSvEE<0.05 & SSSE17$FDR_SSvSE<0.05 &
+                ((SSSE17$logFC_SSvEE < 0 & SSSE17$logFC_SSvSE > 0) |
+                   (SSSE17$logFC_SSvEE > 0 & SSSE17$logFC_SSvSE < 0)),]#0
+
+
+SSSE17_list=list(c2=yellow$genes)
+
+
+allResSSSE17 <- list()
+for (i in 1:1) {
+  candidate_list<- SSSE17_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResSSSE17[[i]] <- GenTable(myGOdata.bv,
+                                parentchildFisher = resultParentchild ,
+                                orderBy = "parentchildFisher",
+                                topNodes = sum(resultParentchild@score < 0.05)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResSSSE17) <- names(SSSE17_list)
+
+write.xlsx(allResSSSE17$c2, file="SSSE_GO_A.xlsx", sheetName = "SSSE17_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+
+
+allRes_plotsSSSE17 <-list()
+for(i in 1:1) {
+  allRes_plotsSSSE17[[i]] <- ggplot(head(allResSSSE17[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResSSSE17)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_SSSE17=ggarrange(plotlist = allRes_plotsSSSE17, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_SSSE17, top=text_grob("SSSE17"))
+
+#===========================================================================================
+####SSNN-SSSN 12 ####
+#2hrs
+
+SSSN12=full_join(DGE_1_2_gene$SSvNN$table %>% dplyr::select( genes, logFC_SSvNN=logFC, FDR_SSvNN=FDR),
+                 DGE_1_2_gene$SSvSN$table %>% dplyr::select( genes, logFC_SSvSN=logFC, FDR_SSvSN=FDR ))
+
+plotSSSN1_2=ggplot()+
+  geom_point(data=SSSN12, aes(x=logFC_SSvNN, y=logFC_SSvSN),color="#999999", alpha=0.30)+
+  geom_point(data=SSSN12[SSSN12$FDR_SSvNN<0.05,], aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=SSSN12[SSSN12$FDR_SSvSN<0.05,], aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#3a538b", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=SSSN12[SSSN12$FDR_SSvNN<0.05& SSSN12$FDR_SSvSN<0.05&
+                           ((SSSN12$logFC_SSvNN < 0 & SSSN12$logFC_SSvSN < 0) |
+                              (SSSN12$logFC_SSvNN > 0 & SSSN12$logFC_SSvSN > 0)),],
+             aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=SSSN12[SSSN12$FDR_SSvNN<0.05 & SSSN12$FDR_SSvSN<0.05 &
+                           ((SSSN12$logFC_SSvNN < 0 & SSSN12$logFC_SSvSN > 0) |
+                              (SSSN12$logFC_SSvNN > 0 & SSSN12$logFC_SSvSN < 0)),],
+             aes(x=logFC_SSvNN, y=logFC_SSvSN ), color="#ef6c23", size=1)+
+  labs(title="2hrs", x=(expression(paste("log FC Sc",bold("Sc"),"-Ud",bold("Ud")))), y=(expression(paste("log FC Sc",bold("Sc"),"-Sc",bold("Ud"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=SSSN12[SSSN12$FDR_SSvNN<0.05,] #13
+blue=SSSN12[SSSN12$FDR_SSvSN<0.05,] #0
+green=SSSN12[SSSN12$FDR_SSvNN<0.05& SSSN12$FDR_SSvSN<0.05,]#0
+orange=SSSN12[SSSN12$FDR_SSvNN<0.05& SSSN12$FDR_SSvSN<0.05&
+                ((SSSN12$logFC_SSvNN < 0 & SSSN12$logFC_SSvSN < 0) |
+                   (SSSN12$logFC_SSvNN > 0 & SSSN12$logFC_SSvSN > 0)),]#0
+
+SSSN12_list=list(c2=yellow$genes)
+
+
+allResSSSN12 <- list()
+for (i in 1:1) {
+  candidate_list<- SSSN12_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResSSSN12[[i]] <- GenTable(myGOdata.bv,
+                                parentchildFisher = resultParentchild ,
+                                orderBy = "parentchildFisher",
+                                topNodes = sum(resultParentchild@score < 0.05)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResSSSN12) <- names(SSSN12_list)
+
+write.xlsx(allResSSSN12$c2, file="SSSN_GO_A.xlsx", sheetName = "SSSN2_c2", col.names = TRUE, row.names = TRUE, append=FALSE)
+
+
+
+allRes_plotsSSSN12 <-list()
+for(i in 1:1) {
+  allRes_plotsSSSN12[[i]] <- ggplot(head(allResSSSN12[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResSSSN12)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_SSSN12=ggarrange(plotlist = allRes_plotsSSSN12, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_SSSN12, top=text_grob("SSSN12"))
+
+#17hrs
+SSSN117=full_join(DGE_1_17_gene$SSvNN$table %>% dplyr::select( genes, logFC_SSvNN=logFC, FDR_SSvNN=FDR),
+                  DGE_1_17_gene$SSvSN$table %>% dplyr::select( genes, logFC_SSvSN=logFC, FDR_SSvSN=FDR ))
+
+plotSSSN1_17=ggplot()+
+  geom_point(data=SSSN117, aes(x=logFC_SSvNN, y=logFC_SSvSN),color="#999999", alpha=0.30)+
+  geom_point(data=SSSN117[SSSN117$FDR_SSvNN<0.05,], aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#E6AB02", size=1)+
+  geom_point(data=SSSN117[SSSN117$FDR_SSvSN<0.05,], aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#3a538b", size=1)+
+  geom_point(data=SSSN117[SSSN117$FDR_SSvNN<0.05& SSSN117$FDR_SSvSN<0.05    &
+                            ((SSSN117$logFC_SSvNN < 0 & SSSN117$logFC_SSvSN < 0) |
+                               (SSSN117$logFC_SSvNN > 0 & SSSN117$logFC_SSvSN > 0)),],
+             aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=SSSN117[SSSN117$FDR_SSvNN<0.05 & SSSN117$FDR_SSvSN<0.05 &
+                            ((SSSN117$logFC_SSvNN < 0 & SSSN117$logFC_SSvSN > 0) |
+                               (SSSN117$logFC_SSvNN > 0 & SSSN117$logFC_SSvSN < 0)),],
+             aes(x=logFC_SSvNN, y=logFC_SSvSN ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC Sc",bold("Sc"),"-Ud",bold("Ud")))), y=(expression(paste("log FC Sc",bold("Sc"),"-Sc",bold("Ud"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=SSSN117[SSSN117$FDR_SSvNN<0.05,] #3
+blue=SSSN117[SSSN117$FDR_SSvSN<0.05,] #0
+green=SSSN117[SSSN117$FDR_SSvNN<0.05& SSSN117$FDR_SSvSN<0.05,]#0
+orange=SSSN117[SSSN117$FDR_SSvNN<0.05 & SSSN117$FDR_SSvSN<0.05 &
+                 ((SSSN117$logFC_SSvNN < 0 & SSSN117$logFC_SSvSN > 0) |
+                    (SSSN117$logFC_SSvNN > 0 & SSSN117$logFC_SSvSN < 0)),]#0
+
+SSSN117_list=list(c2=yellow$genes)
+
+
+allResSSSN117 <- list()
+for (i in 1:1) {
+  candidate_list<- SSSN117_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResSSSN117[[i]] <- GenTable(myGOdata.bv,
+                                 parentchildFisher = resultParentchild ,
+                                 orderBy = "parentchildFisher",
+                                 topNodes = sum(resultParentchild@score < 0.05)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResSSSN117) <- names(SSSN117_list)
+
+write.xlsx(allResSSSN117$c2, file="SSSN_GO_A.xlsx", sheetName = "SSSN17_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+
+allRes_plotsSSSN117 <-list()
+for(i in 1:1) {
+  allRes_plotsSSSN117[[i]] <- ggplot(head(allResSSSN117[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResSSSN117)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_SSSN117=ggarrange(plotlist = allRes_plotsSSSN117, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_SSSN117, top=text_grob("SSSN117"))
+
+#===========================================================================================
+####NNSS-NNNS####
+#2hrs
+
+NNNS12=full_join(DGE_1_2_gene$NNvSS$table %>% dplyr::select( genes, logFC_NNvSS=logFC, FDR_NNvSS=FDR),
+                 DGE_1_2_gene$NNvNS$table %>% dplyr::select( genes, logFC_NNvNS=logFC, FDR_NNvNS=FDR ))
+
+plotNNNS1_2=ggplot()+
+  geom_point(data=NNNS12, aes(x=logFC_NNvSS, y=logFC_NNvNS),color="#999999", alpha=0.30)+
+  geom_point(data=NNNS12[NNNS12$FDR_NNvSS<0.05,], aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=NNNS12[NNNS12$FDR_NNvNS<0.05,], aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#3a538b", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=NNNS12[NNNS12$FDR_NNvSS<0.05& NNNS12$FDR_NNvNS<0.05  &
+                           ((NNNS12$logFC_NNvSS < 0 & NNNS12$logFC_NNvNS < 0) |
+                              (NNNS12$logFC_NNvSS > 0 & NNNS12$logFC_NNvNS > 0)),],
+             aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=NNNS12[NNNS12$FDR_NNvSS<0.05 & NNNS12$FDR_NNvNS<0.05 &
+                           ((NNNS12$logFC_NNvSS < 0 & NNNS12$logFC_NNvNS > 0) |
+                              (NNNS12$logFC_NNvSS > 0 & NNNS12$logFC_NNvNS < 0)),],
+             aes(x=logFC_NNvSS, y=logFC_NNvNS ), color="#ef6c23", size=1)+
+  labs(title="2hrs", x=(expression(paste("log FC Ud",bold("Ud"),"-Sc",bold("Sc")))), y=(expression(paste("log FC Ud",bold("Ud"),"-Ud",bold("Sc"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=NNNS12[NNNS12$FDR_NNvSS<0.05,] #13
+blue=NNNS12[NNNS12$FDR_NNvNS<0.05,] #0
+green=NNNS12[NNNS12$FDR_NNvSS<0.05& NNNS12$FDR_NNvNS<0.05,]#0
+orange=NNNS12[NNNS12$FDR_NNvSS<0.05 & NNNS12$FDR_NNvNS<0.05 &
+                ((NNNS12$logFC_NNvSS < 0 & NNNS12$logFC_NNvNS > 0) |
+                   (NNNS12$logFC_NNvSS > 0 & NNNS12$logFC_NNvNS < 0)),]#0
+
+NNNS12_list=list(c2=yellow$genes)
+
+
+allResNNNS12 <- list()
+for (i in 1:1) {
+  candidate_list<- NNNS12_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResNNNS12[[i]] <- GenTable(myGOdata.bv,
+                                parentchildFisher = resultParentchild ,
+                                orderBy = "parentchildFisher",
+                                topNodes = sum(resultParentchild@score < 0.05)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResNNNS12) <- names(NNNS12_list)
+
+write.xlsx(allResNNNS12$c2, file="NNNS_GO_A.xlsx", sheetName = "NNNS2_c2", col.names = TRUE, row.names = TRUE, append=FALSE)
+
+
+allRes_plotsNNNS12 <-list()
+for(i in 1:1) {
+  allRes_plotsNNNS12[[i]] <- ggplot(head(allResNNNS12[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResNNNS12)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_NNNS12=ggarrange(plotlist = allRes_plotsNNNS12, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_NNNS12, top=text_grob("NNNS12"))
+
+
+#17hrs
+NNNS117=full_join(DGE_1_17_gene$NNvSS$table %>% dplyr::select( genes, logFC_NNvSS=logFC, FDR_NNvSS=FDR),
+                  DGE_1_17_gene$NNvNS$table %>% dplyr::select( genes, logFC_NNvNS=logFC, FDR_NNvNS=FDR ))
+
+
+plotNNNS1_17=ggplot()+
+  geom_point(data=NNNS117, aes(x=logFC_NNvSS, y=logFC_NNvNS),color="#999999", alpha=0.30)+
+  geom_point(data=NNNS117[NNNS117$FDR_NNvSS<0.05,], aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#E6AB02", size=1)+
+  geom_point(data=NNNS117[NNNS117$FDR_NNvNS<0.05,], aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#3a538b", size=1)+
+  geom_point(data=NNNS117[NNNS117$FDR_NNvSS<0.05& NNNS117$FDR_NNvNS<0.05 &
+                            ((NNNS117$logFC_NNvSS < 0 & NNNS117$logFC_NNvNS < 0) |
+                               (NNNS117$logFC_NNvSS > 0 & NNNS117$logFC_NNvNS > 0)),],
+             aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=NNNS117[NNNS117$FDR_NNvSS<0.05 & NNNS117$FDR_NNvNS<0.05 &
+                            ((NNNS117$logFC_NNvSS < 0 & NNNS117$logFC_NNvNS > 0) |
+                               (NNNS117$logFC_NNvSS > 0 & NNNS117$logFC_NNvNS < 0)),],
+             aes(x=logFC_NNvSS, y=logFC_NNvNS ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC Ud",bold("Ud"),"-Sc",bold("Sc")))), y=(expression(paste("log FC Ud",bold("Ud"),"-Ud",bold("Sc"))))) +
+  theme_bw()+
+  xlim(-15,15)+
+  ylim(-15, 15)+
+  theme(aspect.ratio = 1)
+
+#topGo
+yellow=NNNS117[NNNS117$FDR_NNvSS<0.05,] #3
+blue=NNNS117[NNNS117$FDR_NNvNS<0.05,] #0
+green=NNNS117[NNNS117$FDR_NNvSS<0.05& NNNS117$FDR_NNvNS<0.05,]#0
+orange=NNNS117[NNNS117$FDR_NNvSS<0.05 & NNNS117$FDR_NNvNS<0.05 &
+                 ((NNNS117$logFC_NNvSS < 0 & NNNS117$logFC_NNvNS > 0) |
+                    (NNNS117$logFC_NNvSS > 0 & NNNS117$logFC_NNvNS < 0)),]#0
+
+NNNS117_list=list(c2=yellow$genes)
+
+
+allResNNNS117 <- list()
+for (i in 1:1) {
+  candidate_list<- NNNS117_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResNNNS117[[i]] <- GenTable(myGOdata.bv,
+                                 parentchildFisher = resultParentchild ,
+                                 orderBy = "parentchildFisher",
+                                 topNodes = sum(resultParentchild@score < 0.05)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResNNNS117) <- names(NNNS117_list)
+
+write.xlsx(allResNNNS117$c2, file="NNNS_GO_A.xlsx", sheetName = "NNNS17_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+
+allRes_plotsNNNS117 <-list()
+for(i in 1:1) {
+  allRes_plotsNNNS117[[i]] <- ggplot(head(allResNNNS117[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResNNNS117)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_NNNS117=ggarrange(plotlist = allRes_plotsNNNS117, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_NNNS117, top=text_grob("NNNS117"))
+
+#plot Switch 1
+
+plot_S1_NE=ggarrange(plotNNNE1_2, plotNNNE1_17, plotEEEN1_2, plotEEEN1_17,  ncol = 2, nrow=2, labels=c("a", "b", "c", "d"))
+plot_S1_SN=ggarrange(plotNNNS1_2, plotNNNS1_17, plotSSSN1_2, plotSSSN1_17,  ncol = 2, nrow=2,labels=c("e", "f", "g", "h" ))
+plot_S1_SE=ggarrange(plotSSSE1_2, plotSSSE1_17, plotEEES1_2, plotEEES1_17,  ncol = 2, nrow=2, labels=c("i", "j", "k", "l" ))
+
+ggarrange(plot_S1_SN, plot_S1_SE, plot_S1_NE, ncol=3, nrow=1)
+```
+
+```{r scatterplots and GO enrichment analysis -Switch 2}
+
+####NNGG- NNNG ####
+#2hrs
+
+NNNG2=full_join(DGE_2_2_gene$NNvGG$table %>% dplyr::select( genes, logFC_NNvGG=logFC, FDR_NNvGG=FDR),
+                DGE_2_2_gene$NNvNG$table %>% dplyr::select( genes, logFC_NNvNG=logFC, FDR_NNvNG=FDR ))
+
+plotNNNG2=
+  ggplot()+
+  geom_point(data=NNNG2, aes(x=logFC_NNvGG, y=logFC_NNvNG),color="#999999", alpha=0.30)+
+  geom_point(data=NNNG2[NNNG2$FDR_NNvGG<0.05,], aes(x=logFC_NNvGG, y=logFC_NNvNG), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=NNNG2[NNNG2$FDR_NNvNG<0.05,], aes(x=logFC_NNvGG, y=logFC_NNvNG), color="#3a538b", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=NNNG2[NNNG2$FDR_NNvGG<0.05& NNNG2$FDR_NNvNG<0.05 & #diff as expected by Hx and Hy --> "host specific"
+                      ((NNNG2$logFC_NNvGG < 0 & NNNG2$logFC_NNvNG < 0) |
+                         (NNNG2$logFC_NNvGG > 0 & NNNG2$logFC_NNvNG > 0)),],
+                    aes(x=logFC_NNvGG, y=logFC_NNvNG), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=NNNG2[NNNG2$FDR_NNvGG<0.05 & NNNG2$FDR_NNvNG<0.05 &
+                      ((NNNG2$logFC_NNvGG < 0 & NNNG2$logFC_NNvNG > 0) |
+                          (NNNG2$logFC_NNvGG > 0 & NNNG2$logFC_NNvNG < 0)),],
+                      aes(x=logFC_NNvGG, y=logFC_NNvNG ), color="#ef6c23", size=1)+   # slope = -1 line
+  labs(title="2hrs", x=(expression(paste("log FC U",bold("U"),"-R",bold("R")))), y=(expression(paste("log FC U",bold("U"),"-U",bold("R"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12, 12)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=NNNG2[NNNG2$FDR_NNvGG<0.05,] #136
+blue=NNNG2[NNNG2$FDR_NNvNG<0.05,]
+green=NNNG2[NNNG2$FDR_NNvGG<0.05& NNNG2$FDR_NNvNG<0.05,]
+orange=NNNG2[NNNG2$FDR_NNvGG<0.05 & NNNG2$FDR_NNvNG<0.05 &
+               ((NNNG2$logFC_NNvGG < 0 & NNNG2$logFC_NNvNG > 0) |
+                  (NNNG2$logFC_NNvGG > 0 & NNNG2$logFC_NNvNG < 0)),] #0
+
+NNNG2_list=list(c2=yellow$genes)
+
+
+
+allResNNNG2 <- list()
+for (i in 1:1) {
+  candidate_list<- NNNG2_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResNNNG2[[i]] <- GenTable(myGOdata.bv,
+                          parentchildFisher = resultParentchild,
+                          orderBy = "parentchildFisher",
+                          topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResNNNG2) <- names(NNNG2_list)
+
+write.xlsx(allResNNNG2$c2, file="NNNG_GO_B.xlsx", sheetName = "NNNG2_c2", col.names = TRUE, row.names = TRUE, append=FALSE)
+
+
+allRes_plotsNNNG2 <-list()
+for(i in 1:1) {
+  allRes_plotsNNNG2[[i]] <- ggplot(head(allResNNNG2[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResNNNG2)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_NNNG2=ggarrange(plotlist = allRes_plotsNNNG2, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_NNNG2, top=text_grob("NNNG2"))
+
+#17hrs
+NNNG17=NNNG17=full_join(DGE_2_17_gene$NNvGG$table %>% dplyr::select( genes, logFC_NNvGG=logFC, FDR_NNvGG=FDR),
+                        DGE_2_17_gene$NNvNG$table %>% dplyr::select( genes, logFC_NNvNG=logFC, FDR_NNvNG=FDR ))
+
+plotNNNG17=ggplot()+
+  geom_point(data=NNNG17, aes(x=logFC_NNvGG, y=logFC_NNvNG),color="#999999", alpha=0.30)+
+  geom_point(data=NNNG17[NNNG17$FDR_NNvGG<0.05,], aes(x=logFC_NNvGG, y=logFC_NNvNG), color="#E6AB02", size=1)+
+  geom_point(data=NNNG17[NNNG17$FDR_NNvNG<0.05,], aes(x=logFC_NNvGG, y=logFC_NNvNG), color="#3a538b", size=1)+
+#  geom_point(data=NNNG17[NNNG17$FDR_NNvGG<0.05& NNNG17$FDR_NNvNG<0.05,], aes(x=logFC_NNvGG, y=logFC_NNvNG), color="#21a585")+
+  geom_point(data=NNNG17[NNNG17$FDR_NNvGG<0.05& NNNG17$FDR_NNvNG<0.05 & #diff as expected by Hx and Hy --> "host specific"
+                          ((NNNG17$logFC_NNvGG < 0 & NNNG17$logFC_NNvNG < 0) |
+                             (NNNG17$logFC_NNvGG > 0 & NNNG17$logFC_NNvNG > 0)),],
+             aes(x=logFC_NNvGG, y=logFC_NNvNG), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=NNNG17[NNNG17$FDR_NNvGG<0.05 & NNNG17$FDR_NNvNG<0.05 &
+                          ((NNNG17$logFC_NNvGG < 0 & NNNG17$logFC_NNvNG > 0) |
+                             (NNNG17$logFC_NNvGG > 0 & NNNG17$logFC_NNvNG < 0)),],
+             aes(x=logFC_NNvGG, y=logFC_NNvNG ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC U",bold("U"),"-R",bold("R")))), y=(expression(paste("log FC U",bold("U"),"-U",bold("R"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+plot_NNNG=ggarrange(plotNNNG2, NULL, plotNNNG17, nrow=1, widths=c(1,0.01, 1))
+
+#topGo
+yellow=NNNG17[NNNG17$FDR_NNvGG<0.05,] #199
+blue=NNNG17[NNNG17$FDR_NNvNG<0.05,] #1219
+green=NNNG17[NNNG17$FDR_NNvGG<0.05& NNNG17$FDR_NNvNG<0.05,]#123
+orange= NNNG17[NNNG17$FDR_NNvGG<0.05 & NNNG17$FDR_NNvNG<0.05 &
+                 ((NNNG17$logFC_NNvGG < 0 & NNNG17$logFC_NNvNG > 0) |
+                    (NNNG17$logFC_NNvGG > 0 & NNNG17$logFC_NNvNG < 0)),]#0
+
+
+NNNG17_list=list(c1=green$genes,
+                c2=yellow$genes,
+                c3=blue$genes)
+
+allResNNNG17 <- list()
+for (i in 1:3) {
+  candidate_list<- NNNG17_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResNNNG17[[i]] <- GenTable(myGOdata.bv,
+                          parentchildFisher = resultParentchild,
+                          orderBy = "parentchildFisher",
+                          topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResNNNG17) <- names(NNNG17_list)
+
+write.xlsx(allResNNNG17$c1, file="NNNG_GO_B.xlsx", sheetName = "NNNG17_c1", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResNNNG17$c2, file="NNNG_GO_B.xlsx", sheetName = "NNNG17_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResNNNG17$c3, file="NNNG_GO_B.xlsx", sheetName = "NNNG17_c3", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+allRes_plotsNNNG17 <-list()
+for(i in 1:3) {
+  allRes_plotsNNNG17[[i]] <- ggplot(head(allResNNNG17[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allRes_plotsNNNG17)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_NNNG17=ggarrange(plotlist = allRes_plotsNNNG17, ncol = 3, nrow = 1,labels=c("missing", "unexpected", "expected"), vjust=1 )
+annotate_figure(GO_NNNG17, top=text_grob("NNNG17"))
+
+#===========================================================================================
+####GGNN - GGGN ####
+#2hrs
+
+GGGN2=full_join(DGE_2_2_gene$GGvNN$table %>% dplyr::select( genes, logFC_GGvNN=logFC, FDR_GGvNN=FDR),
+                DGE_2_2_gene$GGvGN$table %>% dplyr::select( genes, logFC_GGvGN=logFC, FDR_GGvGN=FDR ))
+
+plotGGGN2=ggplot()+
+  geom_point(data=GGGN2, aes(x=logFC_GGvNN, y=logFC_GGvGN),color="#999999", alpha=0.30)+
+  geom_point(data=GGGN2[GGGN2$FDR_GGvNN<0.05,], aes(x=logFC_GGvNN, y=logFC_GGvGN), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=GGGN2[GGGN2$FDR_GGvGN<0.05,], aes(x=logFC_GGvNN, y=logFC_GGvGN), color="#3a538b", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=GGGN2[GGGN2$FDR_GGvNN<0.05 & GGGN2$FDR_GGvGN<0.05 &
+                           ((GGGN2$logFC_GGvNN < 0 & GGGN2$logFC_GGvGN < 0) |
+                             (GGGN2$logFC_GGvNN > 0 & GGGN2$logFC_GGvGN > 0)),],
+             aes(x=logFC_GGvNN, y=logFC_GGvGN), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=GGGN2[GGGN2$FDR_GGvNN<0.05 & GGGN2$FDR_GGvGN<0.05 &
+                          ((GGGN2$logFC_GGvNN < 0 & GGGN2$logFC_GGvGN > 0) |
+                             (GGGN2$logFC_GGvNN > 0 & GGGN2$logFC_GGvGN < 0)),],
+             aes(x=logFC_GGvNN, y=logFC_GGvGN ), color="#ef6c23", size=1)+
+  labs(title="2hrs", x=(expression(paste("log FC R",bold("R"),"-U",bold("U")))), y=(expression(paste("log FC R",bold("R"),"-R",bold("U"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+#topGo
+yellow=GGGN2[GGGN2$FDR_GGvNN<0.05,]#136
+blue=GGGN2[GGGN2$FDR_GGvGN<0.05,]
+green=GGGN2[GGGN2$FDR_GGvNN<0.05& GGGN2$FDR_GGvGN<0.05,]
+orange=GGGN17[GGGN17$FDR_GGvNN<0.05 & GGGN17$FDR_GGvGN<0.05 &
+                ((GGGN17$logFC_GGvNN < 0 & GGGN17$logFC_GGvGN > 0) |
+                   (GGGN17$logFC_GGvNN > 0 & GGGN17$logFC_GGvGN < 0)),]#0
+
+GGGN2_list=list(c2=yellow$genes)
+
+
+
+allResGGGN2 <- list()
+for (i in 1:1) {
+  candidate_list<- GGGN2_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResGGGN2[[i]] <- GenTable(myGOdata.bv,
+                               parentchildFisher = resultParentchild,
+                               orderBy = "parentchildFisher",
+                               topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResGGGN2) <- names(GGGN2_list)
+
+write.xlsx(allResGGGN2$c2, file="GGGN_GO_B.xlsx", sheetName = "GGGN2_c2", col.names = TRUE, row.names = TRUE, append=FALSE)
+
+allRes_plotsGGGN2 <-list()
+for(i in 1:1) {
+  allRes_plotsGGGN2[[i]] <- ggplot(head(allResGGGN2[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResGGGN2)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_GGGN2=ggarrange(plotlist = allRes_plotsGGGN2, ncol = 2, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_GGGN2, top=text_grob("GGGN2"))
+
+
+#17hrs
+GGGN17=GGGN17=full_join(DGE_2_17_gene$GGvNN$table %>% dplyr::select( genes, logFC_GGvNN=logFC, FDR_GGvNN=FDR),
+                        DGE_2_17_gene$GGvGN$table %>% dplyr::select( genes, logFC_GGvGN=logFC, FDR_GGvGN=FDR ))
+
+plotGGGN17=ggplot()+
+  geom_point(data=GGGN17, aes(x=logFC_GGvNN, y=logFC_GGvGN),color="#999999", alpha=0.30)+
+  geom_point(data=GGGN17[GGGN17$FDR_GGvNN<0.05,], aes(x=logFC_GGvNN, y=logFC_GGvGN), color="#E6AB02", size=1)+
+  geom_point(data=GGGN17[GGGN17$FDR_GGvGN<0.05,], aes(x=logFC_GGvNN, y=logFC_GGvGN), color="#3a538b", size=1)+
+  geom_point(data=GGGN17[GGGN17$FDR_GGvNN<0.05& GGGN17$FDR_GGvGN<0.05 &
+             ((GGGN17$logFC_GGvNN < 0 & GGGN17$logFC_GGvGN < 0) |
+                (GGGN17$logFC_GGvNN > 0 & GGGN17$logFC_GGvGN > 0)),],
+aes(x=logFC_GGvNN, y=logFC_GGvGN), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=GGGN17[GGGN17$FDR_GGvNN<0.05 & GGGN17$FDR_GGvGN<0.05 &
+                          ((GGGN17$logFC_GGvNN < 0 & GGGN17$logFC_GGvGN > 0) |
+                             (GGGN17$logFC_GGvNN > 0 & GGGN17$logFC_GGvGN < 0)),],
+             aes(x=logFC_GGvNN, y=logFC_GGvGN ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC R",bold("R"),"-U",bold("U")))), y=(expression(paste("log FC R",bold("R"),"-R",bold("U"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+#topG0
+yellow=GGGN17[GGGN17$FDR_GGvNN<0.05,]#199
+blue=GGGN17[GGGN17$FDR_GGvGN<0.05,]#394
+green=GGGN17[GGGN17$FDR_GGvNN<0.05& GGGN17$FDR_GGvGN<0.05,]#90
+orange=GGGN17[GGGN17$FDR_GGvNN<0.05 & GGGN17$FDR_GGvGN<0.05 &
+                ((GGGN17$logFC_GGvNN < 0 & GGGN17$logFC_GGvGN > 0) |
+                   (GGGN17$logFC_GGvNN > 0 & GGGN17$logFC_GGvGN < 0)),]#0
+
+GGGN17_list=list(c1=green$genes,
+                 c2=yellow$genes,
+                 c3=blue$genes)
+
+allResGGGN17 <- list()
+for (i in 1:3) {
+  candidate_list<- GGGN17_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResGGGN17[[i]] <- GenTable(myGOdata.bv,
+                                parentchildFisher = resultParentchild,
+                                orderBy = "parentchildFisher",
+                                topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResGGGN17) <- names(GGGN17_list)
+
+write.xlsx(allResGGGN17$c1, file="GGGN_GO_B.xlsx", sheetName = "GGGN17_c1", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResGGGN17$c2, file="GGGN_GO_B.xlsx", sheetName = "GGGN17_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResGGGN17$c3, file="GGGN_GO_B.xlsx", sheetName = "GGGN17_c3", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+allRes_plotsGGGN17 <-list()
+for(i in 1:3) {
+  allRes_plotsGGGN17[[i]] <- ggplot(head(allResGGGN17[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allRes)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_GGGN17=ggarrange(plotlist = allRes_plotsGGGN17, ncol = 3, nrow = 1,labels=c("missing", "unexpected", "expected"), vjust=1 )
+annotate_figure(GO_GGGN17, top=text_grob("GGGN17"))
+
+#===========================================================================================
+####GGSS-GGGS####
+#2hrs
+
+GGGS2=full_join(DGE_2_2_gene$GGvSS$table %>% dplyr::select( genes, logFC_GGvSS=logFC, FDR_GGvSS=FDR),
+                DGE_2_2_gene$GGvGS$table %>% dplyr::select( genes, logFC_GGvGS=logFC, FDR_GGvGS=FDR ))
+
+plotGGGS2=ggplot()+
+  geom_point(data=GGGS2, aes(x=logFC_GGvSS, y=logFC_GGvGS),color="#999999", alpha=0.30)+
+  geom_point(data=GGGS2[GGGS2$FDR_GGvSS<0.05,], aes(x=logFC_GGvSS, y=logFC_GGvGS), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=GGGS2[GGGS2$FDR_GGvGS<0.05,], aes(x=logFC_GGvSS, y=logFC_GGvGS), color="#56B4E9", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=GGGS2[GGGS2$FDR_GGvSS<0.05& GGGS2$FDR_GGvGS<0.05 &
+                          ((GGGS2$logFC_GGvSS < 0 & GGGS2$logFC_GGvGS < 0) |
+                             (GGGS2$logFC_GGvSS > 0 & GGGS2$logFC_GGvGS > 0)),],
+             aes(x=logFC_GGvSS, y=logFC_GGvGS), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=GGGS2[GGGS2$FDR_GGvSS<0.05 & GGGS2$FDR_GGvGS<0.05 &
+                           ((GGGS2$logFC_GGvSS < 0 & GGGS2$logFC_GGvGS > 0) |
+                              (GGGS2$logFC_GGvSS > 0 & GGGS2$logFC_GGvGS < 0)),],
+             aes(x=logFC_GGvSS, y=logFC_GGvGS ), color="#ef6c23", size=1)+
+  labs(title="2hrs", x=(expression(paste("log FC R",bold("R"),"-S",bold("S")))), y=(expression(paste("log FC R",bold("R"),"-R",bold("S"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=GGGS2[GGGS2$FDR_GGvSS<0.05,] #313
+blue=GGGS2[GGGS2$FDR_GGvGS<0.05,] #0
+green=GGGS2[GGGS2$FDR_GGvSS<0.05& GGGS2$FDR_GGvGS<0.05,] #0
+orange=GGGS2[GGGS2$FDR_GGvSS<0.05 & GGGS2$FDR_GGvGS<0.05 &
+               ((GGGS2$logFC_GGvSS < 0 & GGGS2$logFC_GGvGS > 0) |
+                  (GGGS2$logFC_GGvSS > 0 & GGGS2$logFC_GGvGS < 0)),] #0
+
+GGGS2_list=list(c2=yellow$genes)
+
+
+allResGGGS2 <- list()
+for (i in 1:1) {
+  candidate_list<- GGGS2_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResGGGS2[[i]] <- GenTable(myGOdata.bv,
+                               parentchildFisher = resultParentchild,
+                               orderBy = "parentchildFisher",
+                               topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResGGGS2) <- names(GGGS2_list)
+
+write.xlsx(allResGGGS2$c2, file="GGGS_GO_B.xlsx", sheetName = "GGGS2_c2", col.names = TRUE, row.names = TRUE, append=FALSE)
+
+
+allRes_plotsGGGS2 <-list()
+for(i in 1:1) {
+  allRes_plotsGGGS2[[i]] <- ggplot(head(allResGGGS2[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResGGGS2)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_GGGS2=ggarrange(plotlist = allRes_plotsGGGS2, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_GGGS2, top=text_grob("GGGS2"))
+
+#17hrs
+GGGS17=GGGS17=full_join(DGE_2_17_gene$GGvSS$table %>% dplyr::select( genes, logFC_GGvSS=logFC, FDR_GGvSS=FDR),
+                        DGE_2_17_gene$GGvGS$table %>% dplyr::select( genes, logFC_GGvGS=logFC, FDR_GGvGS=FDR ))
+
+plotGGGS17=ggplot()+
+  geom_point(data=GGGS17, aes(x=logFC_GGvSS, y=logFC_GGvGS),color="#999999", alpha=0.30)+
+  geom_point(data=GGGS17[GGGS17$FDR_GGvSS<0.05,], aes(x=logFC_GGvSS, y=logFC_GGvGS), color="#E6AB02", size=1)+
+  geom_point(data=GGGS17[GGGS17$FDR_GGvGS<0.05,], aes(x=logFC_GGvSS, y=logFC_GGvGS), color="#414487FF", size=1)+
+  geom_point(data=GGGS17[GGGS17$FDR_GGvSS<0.05& GGGS17$FDR_GGvGS<0.05 &
+                      ((GGGS17$logFC_GGvSS < 0 & GGGS17$logFC_GGvGS < 0) |
+                              (GGGS17$logFC_GGvSS > 0 & GGGS17$logFC_GGvGS > 0)),],
+             aes(x=logFC_GGvSS, y=logFC_GGvGS), color="#21a585", size=1)+  # slope = 1 line
+    geom_point(data=GGGS17[GGGS17$FDR_GGvSS<0.05 & GGGS17$FDR_GGvGS<0.05 &
+                          ((GGGS17$logFC_GGvSS < 0 & GGGS17$logFC_GGvGS > 0) |
+                             (GGGS17$logFC_GGvSS > 0 & GGGS17$logFC_GGvGS < 0)),],
+             aes(x=logFC_GGvSS, y=logFC_GGvGS ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC R",bold("R"),"-S",bold("S")))), y=(expression(paste("log FC R",bold("R"),"-R",bold("S"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+#topGO
+
+yellow=GGGS17[GGGS17$FDR_GGvSS<0.05,] #215
+blue=GGGS17[GGGS17$FDR_GGvGS<0.05,] #32
+green=GGGS17[GGGS17$FDR_GGvSS<0.05& GGGS17$FDR_GGvGS<0.05,]#21
+orange=GGGS17[GGGS17$FDR_GGvSS<0.05 & GGGS17$FDR_GGvGS<0.05 &
+                ((GGGS17$logFC_GGvSS < 0 & GGGS17$logFC_GGvGS > 0) |
+                   (GGGS17$logFC_GGvSS > 0 & GGGS17$logFC_GGvGS < 0)),]#0
+
+GGGS17_list=list(c1=green$genes,
+                 c2=yellow$genes,
+                 c3=blue$genes)
+
+allResGGGS17 <- list()
+for (i in 1:3) {
+  candidate_list<- GGGS17_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResGGGS17[[i]] <- GenTable(myGOdata.bv,
+                                parentchildFisher = resultParentchild,
+                                orderBy = "parentchildFisher",
+                                topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResGGGS17) <- names(GGGS17_list)
+
+write.xlsx(allResGGGS17$c1, file="GGGS_GO_B.xlsx", sheetName = "GGGS17_c1", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResGGGS17$c2, file="GGGS_GO_B.xlsx", sheetName = "GGGS17_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResGGGS17$c3, file="GGGS_GO_B.xlsx", sheetName = "GGGS17_c3", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+allRes_plotsGGGS17 <-list()
+for(i in 1:3) {
+  allRes_plotsGGGS17[[i]] <- ggplot(head(allResGGGS17[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allRes_plotsGGGS17)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_GGGS17=ggarrange(plotlist = allRes_plotsGGGS17, ncol = 3, nrow = 1,labels=c("missing", "unexpected", "expected"), vjust=1 )
+annotate_figure(GO_GGGS17, top=text_grob("GGGS17"))
+
+#===========================================================================================
+####SSGG-SSSG####
+#2hrs
+
+SSSG2=full_join(DGE_2_2_gene$SSvGG$table %>% dplyr::select( genes, logFC_SSvGG=logFC, FDR_SSvGG=FDR),
+                DGE_2_2_gene$SSvSG$table %>% dplyr::select( genes, logFC_SSvSG=logFC, FDR_SSvSG=FDR ))
+
+plotSSSG2=ggplot()+
+  geom_point(data=SSSG2, aes(x=logFC_SSvGG, y=logFC_SSvSG),color="#999999", alpha=0.30)+
+  geom_point(data=SSSG2[SSSG2$FDR_SSvGG<0.05,], aes(x=logFC_SSvGG, y=logFC_SSvSG), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=SSSG2[SSSG2$FDR_SSvSG<0.05,], aes(x=logFC_SSvGG, y=logFC_SSvSG), color="#414487FF", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=SSSG2[SSSG2$FDR_SSvGG<0.05& SSSG2$FDR_SSvSG<0.05 &
+                          ((SSSG2$logFC_SSvGG < 0 & SSSG2$logFC_SSvSG < 0) |
+                             (SSSG2$logFC_SSvGG > 0 & SSSG2$logFC_SSvSG > 0)),],
+             aes(x=logFC_SSvGG, y=logFC_SSvSG), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=SSSG2[SSSG2$FDR_SSvGG<0.05 & SSSG2$FDR_SSvSG<0.05 &
+                           ((SSSG2$logFC_SSvGG < 0 & SSSG2$logFC_SSvSG > 0) |
+                              (SSSG2$logFC_SSvGG > 0 & SSSG2$logFC_SSvSG < 0)),],
+             aes(x=logFC_SSvGG, y=logFC_SSvSG ), color="#ef6c23", size=1)+
+  labs(title="2hrs", x=(expression(paste("log FC S",bold("S"),"-R",bold("R")))), y=(expression(paste("log FC S",bold("S"),"-S",bold("R"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=SSSG2[SSSG2$FDR_SSvGG<0.05,] #313
+blue=SSSG2[SSSG2$FDR_SSvSG<0.05,] #1
+green=SSSG2[SSSG2$FDR_SSvGG<0.05& SSSG2$FDR_SSvSG<0.05,]#1 # same coordinate as green one --> makes sense
+orange=SSSG2[SSSG2$FDR_SSvGG<0.05 & SSSG2$FDR_SSvSG<0.05 &
+        ((SSSG2$logFC_SSvGG < 0 & SSSG2$logFC_SSvSG > 0) |
+           (SSSG2$logFC_SSvGG > 0 & SSSG2$logFC_SSvSG < 0)),] #0
+
+SSSG2_list=list(c1=green$genes,
+                c2=yellow$genes,
+                c3=blue$genes)
+
+
+allResSSSG2 <- list()
+for (i in 1:3) {
+  candidate_list<- SSSG2_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResSSSG2[[i]] <- GenTable(myGOdata.bv,
+                               parentchildFisher = resultParentchild,
+                               orderBy = "parentchildFisher",
+                               topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResSSSG2) <- names(SSSG2_list)
+
+write.xlsx(allResSSSG2$c1, file="SSSG_GO_B.xlsx", sheetName = "SSSG2_c1", col.names = TRUE, row.names = TRUE, append=FALSE)
+write.xlsx(allResSSSG2$c2, file="SSSG_GO_B.xlsx", sheetName = "SSSG2_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResSSSG2$c3, file="SSSG_GO_B.xlsx", sheetName = "SSSG2_c3", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+allRes_plotsSSSG2 <-list()
+for(i in 1:3) {
+  allRes_plotsSSSG2[[i]] <- ggplot(head(allResSSSG2[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResSSSG2)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_SSSG2=ggarrange(plotlist = allRes_plotsSSSG2, ncol = 2, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_SSSG2, top=text_grob("SSSG2"))
+
+#17hrs
+SSSG17=SSSG17=full_join(DGE_2_17_gene$SSvGG$table %>% dplyr::select( genes, logFC_SSvGG=logFC, FDR_SSvGG=FDR),
+                        DGE_2_17_gene$SSvSG$table %>% dplyr::select( genes, logFC_SSvSG=logFC, FDR_SSvSG=FDR ))
+
+plotSSSG17=ggplot()+
+  geom_point(data=SSSG17, aes(x=logFC_SSvGG, y=logFC_SSvSG),color="#999999", alpha=0.30)+
+  geom_point(data=SSSG17[SSSG17$FDR_SSvGG<0.05,], aes(x=logFC_SSvGG, y=logFC_SSvSG), color="#E6AB02", size=1)+
+  geom_point(data=SSSG17[SSSG17$FDR_SSvSG<0.05,], aes(x=logFC_SSvGG, y=logFC_SSvSG), color="#414487FF", size=1)+
+  geom_point(data=SSSG17[SSSG17$FDR_SSvGG<0.05& SSSG17$FDR_SSvSG<0.05&
+                           ((SSSG17$logFC_SSvGG < 0 & SSSG17$logFC_SSvSG < 0) |
+                              (SSSG17$logFC_SSvGG > 0 & SSSG17$logFC_SSvSG > 0)),],
+             aes(x=logFC_SSvGG, y=logFC_SSvSG), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=SSSG17[SSSG17$FDR_SSvGG<0.05 & SSSG17$FDR_SSvSG<0.05 &
+                          ((SSSG17$logFC_SSvGG < 0 & SSSG17$logFC_SSvSG > 0) |
+                             (SSSG17$logFC_SSvGG > 0 & SSSG17$logFC_SSvSG < 0)),],
+             aes(x=logFC_SSvGG, y=logFC_SSvSG ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC S",bold("S"),"-R",bold("R")))), y=(expression(paste("log FC S",bold("S"),"-S",bold("R"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+#topGO
+
+yellow=SSSG17[SSSG17$FDR_SSvGG<0.05,]#215
+blue=SSSG17[SSSG17$FDR_SSvSG<0.05,] #698
+#there was one red gene, so we need to differentiate green and red:
+green=SSSG17[SSSG17$FDR_SSvGG<0.05& SSSG17$FDR_SSvSG<0.05 & ((SSSG17$logFC_SSvGG < 0 & SSSG17$logFC_SSvSG < 0) | (SSSG17$logFC_SSvGG > 0 & SSSG17$logFC_SSvSG > 0)),] #117
+red=SSSG17[SSSG17$FDR_SSvGG<0.05 & SSSG17$FDR_SSvSG<0.05 & ((SSSG17$logFC_SSvGG < 0 & SSSG17$logFC_SSvSG > 0) | (SSSG17$logFC_SSvGG > 0 & SSSG17$logFC_SSvSG < 0)),] #1
+
+#the "red" gene was however not annotated. Also the Heliconius ortholog wasn't annotated.
+# genes logFC_SSvGG  FDR_SSvGG logFC_SSvSG  FDR_SSvSG
+# 137 file_1_file_1_g8891   0.6844723 0.02574927  -0.6128706 0.02216444 --> HMEL014858-PA --> not annotated
+
+SSSG17_list=list(c1=green$genes,
+                 c2=yellow$genes,
+                 c3=blue$genes)
+                  #c4=red$genes) #not annotated -> remove from list otherwise error in topGo loop
+
+
+
+
+allResSSSG17 <- list()
+for (i in 1:3) {          # only 3, because "red" wasn't annotated
+  candidate_list<- SSSG17_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResSSSG17[[i]] <- GenTable(myGOdata.bv,
+                               parentchildFisher = resultParentchild,
+                               orderBy = "parentchildFisher",
+                               topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+
+
+names(allResSSSG17) <- names(SSSG17_list)
+
+write.xlsx(allResSSSG17$c1, file="SSSG_GO_B.xlsx", sheetName = "SSSG17_c1", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResSSSG17$c2, file="SSSG_GO_B.xlsx", sheetName = "SSSG17_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResSSSG17$c3, file="SSSG_GO_B.xlsx", sheetName = "SSSG17_c3", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+
+allRes_plotsSSSG17 <-list()
+for(i in 1:3) {
+  allRes_plotsSSSG17[[i]] <- ggplot(head(allResSSSG17[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allRes_plotsSSSG17)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_SSSG17=ggarrange(plotlist = allRes_plotsSSSG17, ncol = 3, nrow = 1,labels=c("missing", "unexpected", "expected"), vjust=1 )
+annotate_figure(GO_SSSG17, top=text_grob("SSSG17"))
+
+
+#===========================================================================================
+####SSNN-SSSN -Switch 2!####
+#2hrs
+
+SSSN2=full_join(DGE_2_2_gene$SSvNN$table %>% dplyr::select( genes, logFC_SSvNN=logFC, FDR_SSvNN=FDR),
+                DGE_2_2_gene$SSvSN$table %>% dplyr::select( genes, logFC_SSvSN=logFC, FDR_SSvSN=FDR ))
+
+plotSSSN2=ggplot()+
+  geom_point(data=SSSN2, aes(x=logFC_SSvNN, y=logFC_SSvSN),color="#999999", alpha=0.30)+
+  geom_point(data=SSSN2[SSSN2$FDR_SSvNN<0.05,], aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=SSSN2[SSSN2$FDR_SSvSN<0.05,], aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#3a538b", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=SSSN2[SSSN2$FDR_SSvNN<0.05& SSSN2$FDR_SSvSN<0.05&
+                          ((SSSN2$logFC_SSvNN < 0 & SSSN2$logFC_SSvSN < 0) |
+                             (SSSN2$logFC_SSvNN > 0 & SSSN2$logFC_SSvSN > 0)),],
+             aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=SSSN2[SSSN2$FDR_SSvNN<0.05 & SSSN2$FDR_SSvSN<0.05 &
+                          ((SSSN2$logFC_SSvNN < 0 & SSSN2$logFC_SSvSN > 0) |
+                             (SSSN2$logFC_SSvNN > 0 & SSSN2$logFC_SSvSN < 0)),],
+             aes(x=logFC_SSvNN, y=logFC_SSvSN ), color="#ef6c23", size=1)+
+  labs(title="2hrs", x=(expression(paste("log FC S",bold("S"),"-U",bold("U")))), y=(expression(paste("log FC S",bold("S"),"-S",bold("U"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=SSSN2[SSSN2$FDR_SSvNN<0.05,]#639
+blue=SSSN2[SSSN2$FDR_SSvSN<0.05,] #7
+green=SSSN2[SSSN2$FDR_SSvNN<0.05& SSSN2$FDR_SSvSN<0.05,]#6
+orange=SSSN2[SSSN2$FDR_SSvNN<0.05 & SSSN2$FDR_SSvSN<0.05 &
+               ((SSSN2$logFC_SSvNN < 0 & SSSN2$logFC_SSvSN > 0) |
+                  (SSSN2$logFC_SSvNN > 0 & SSSN2$logFC_SSvSN < 0)),]#0
+
+SSSN2_list=list(c1=green$genes,
+                c2=yellow$genes,
+                c3=blue$genes)
+
+
+allResSSSN2 <- list()
+for (i in 1:3) {
+  candidate_list<- SSSN2_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResSSSN2[[i]] <- GenTable(myGOdata.bv,
+                               parentchildFisher = resultParentchild,
+                               orderBy = "parentchildFisher",
+                               topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResSSSN2) <- names(SSSN2_list)
+
+write.xlsx(allResSSSN2$c1, file="SSSN_GO_B.xlsx", sheetName = "SSSN2_c1", col.names = TRUE, row.names = TRUE, append=FALSE)
+write.xlsx(allResSSSN2$c2, file="SSSN_GO_B.xlsx", sheetName = "SSSN2_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResSSSN2$c3, file="SSSN_GO_B.xlsx", sheetName = "SSSN2_c3", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+
+allRes_plotsSSSN2 <-list()
+for(i in 1:3) {
+  allRes_plotsSSSN2[[i]] <- ggplot(head(allResSSSN2[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResSSSN2)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_SSSN2=ggarrange(plotlist = allRes_plotsSSSN2, ncol = 3, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_SSSN2, top=text_grob("SSSN2"))
+
+#17hrs
+SSSN17=SSSN17=full_join(DGE_2_17_gene$SSvNN$table %>% dplyr::select( genes, logFC_SSvNN=logFC, FDR_SSvNN=FDR),
+                        DGE_2_17_gene$SSvSN$table %>% dplyr::select( genes, logFC_SSvSN=logFC, FDR_SSvSN=FDR ))
+
+plotSSSN17=ggplot()+
+  geom_point(data=SSSN17, aes(x=logFC_SSvNN, y=logFC_SSvSN),color="#999999", alpha=0.30)+
+  geom_point(data=SSSN17[SSSN17$FDR_SSvNN<0.05,], aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#E6AB02", size=1)+
+  geom_point(data=SSSN17[SSSN17$FDR_SSvSN<0.05,], aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#3a538b", size=1)+
+  geom_point(data=SSSN17[SSSN17$FDR_SSvNN<0.05& SSSN17$FDR_SSvSN<0.05    &
+                           ((SSSN17$logFC_SSvNN < 0 & SSSN17$logFC_SSvSN < 0) |
+                              (SSSN17$logFC_SSvNN > 0 & SSSN17$logFC_SSvSN > 0)),],
+             aes(x=logFC_SSvNN, y=logFC_SSvSN), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=SSSN17[SSSN17$FDR_SSvNN<0.05 & SSSN17$FDR_SSvSN<0.05 &
+                          ((SSSN17$logFC_SSvNN < 0 & SSSN17$logFC_SSvSN > 0) |
+                             (SSSN17$logFC_SSvNN > 0 & SSSN17$logFC_SSvSN < 0)),],
+             aes(x=logFC_SSvNN, y=logFC_SSvSN ), color="#ef6c23", size=1)+
+  labs(title="17hrs", x=(expression(paste("log FC S",bold("S"),"-U",bold("U")))), y=(expression(paste("log FC S",bold("S"),"-S",bold("U"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=SSSN17[SSSN17$FDR_SSvNN<0.05,] #36
+blue=SSSN17[SSSN17$FDR_SSvSN<0.05,] #20
+green=SSSN17[SSSN17$FDR_SSvNN<0.05& SSSN17$FDR_SSvSN<0.05,] #6
+orange=SSSN17[SSSN17$FDR_SSvNN<0.05 & SSSN17$FDR_SSvSN<0.05 &
+                ((SSSN17$logFC_SSvNN < 0 & SSSN17$logFC_SSvSN > 0) |
+                   (SSSN17$logFC_SSvNN > 0 & SSSN17$logFC_SSvSN < 0)),]#0
+
+SSSN17_list=list(c1=green$genes,
+                 c2=yellow$genes,
+                 c3=blue$genes)
+
+allResSSSN17 <- list()
+for (i in 1:3) {
+  candidate_list<- SSSN17_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological process terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResSSSN17[[i]] <- GenTable(myGOdata.bv,
+                                parentchildFisher = resultParentchild,
+                                orderBy = "parentchildFisher",
+                                topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResSSSN17) <- names(SSSN17_list)
+
+
+write.xlsx(allResSSSN17$c1, file="SSSN_GO_B.xlsx", sheetName = "SSSN17_c1", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResSSSN17$c2, file="SSSN_GO_B.xlsx", sheetName = "SSSN17_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResSSSN17$c3, file="SSSN_GO_B.xlsx", sheetName = "SSSN17_c3", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+allRes_plotsSSSN17 <-list()
+for(i in 1:3) {
+  allRes_plotsSSSN17[[i]] <- ggplot(head(allResSSSN17[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allRes_plotsSSSN17)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_SSSN17=ggarrange(plotlist = allRes_plotsSSSN17, ncol = 3, nrow = 1,labels=c("missing", "unexpected", "expected"), vjust=1 )
+annotate_figure(GO_SSSN17, top=text_grob("SSSN17"))
+
+
+#===========================================================================================
+####NNSS-NNNS - Switch 2!####
+
+NNNS2=full_join(DGE_2_2_gene$NNvSS$table %>% dplyr::select( genes, logFC_NNvSS=logFC, FDR_NNvSS=FDR),
+                DGE_2_2_gene$NNvNS$table %>% dplyr::select( genes, logFC_NNvNS=logFC, FDR_NNvNS=FDR ))
+
+plotNNNS2=ggplot()+
+  geom_point(data=NNNS2, aes(x=logFC_NNvSS, y=logFC_NNvNS),color="#999999", alpha=0.30)+
+  geom_point(data=NNNS2[NNNS2$FDR_NNvSS<0.05,], aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#E6AB02", size=1)+ #=#F0E442 -> no diff although expected --> "lag of plasticity"
+  geom_point(data=NNNS2[NNNS2$FDR_NNvNS<0.05,], aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#3a538b", size=1)+  # #3a538b -> not expected differences --> "stress"
+  geom_point(data=NNNS2[NNNS2$FDR_NNvSS<0.05& NNNS2$FDR_NNvNS<0.05  &
+                          ((NNNS2$logFC_NNvSS < 0 & NNNS2$logFC_NNvNS < 0) |
+                             (NNNS2$logFC_NNvSS > 0 & NNNS2$logFC_NNvNS > 0)),],
+             aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=NNNS2[NNNS2$FDR_NNvSS<0.05 & NNNS2$FDR_NNvNS<0.05 &
+                           ((NNNS2$logFC_NNvSS < 0 & NNNS2$logFC_NNvNS > 0) |
+                              (NNNS2$logFC_NNvSS > 0 & NNNS2$logFC_NNvNS < 0)),],
+             aes(x=logFC_NNvSS, y=logFC_NNvNS ), color="#ef6c23", size=1)+
+  labs(title="2hrs", x=(expression(paste("log FC U",bold("U"),"-S",bold("S")))), y=(expression(paste("log FC U",bold("U"),"-U",bold("S"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=NNNS2[NNNS2$FDR_NNvSS<0.05,] #639
+blue=NNNS2[NNNS2$FDR_NNvNS<0.05,] #0
+green=NNNS2[NNNS2$FDR_NNvSS<0.05& NNNS2$FDR_NNvNS<0.05,]#0
+orange=NNNS2[NNNS2$FDR_NNvSS<0.05 & NNNS2$FDR_NNvNS<0.05 &
+               ((NNNS2$logFC_NNvSS < 0 & NNNS2$logFC_NNvNS > 0) |
+                  (NNNS2$logFC_NNvSS > 0 & NNNS2$logFC_NNvNS < 0)),]#0
+
+NNNS2_list=list(c2=yellow$genes)
+
+
+allResNNNS2 <- list()
+for (i in 1:1) {
+  candidate_list<- NNNS2_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResNNNS2[[i]] <- GenTable(myGOdata.bv,
+                               parentchildFisher = resultParentchild,
+                               orderBy = "parentchildFisher",
+                               topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResNNNS2) <- names(NNNS2_list)
+
+write.xlsx(allResNNNS2$c2, file="NNNS_GO_B.xlsx", sheetName = "NNNS2_c2", col.names = TRUE, row.names = TRUE, append=FALSE)
+
+allRes_plotsNNNS2 <-list()
+for(i in 1:1) {
+  allRes_plotsNNNS2[[i]] <- ggplot(head(allResNNNS2[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResNNNS2)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_NNNS2=ggarrange(plotlist = allRes_plotsNNNS2, ncol = 1, nrow = 1,labels=c("missing", "unexpected", "host specific"), vjust=1 )
+annotate_figure(GO_NNNS2, top=text_grob("NNNS2"))
+
+#17hrs
+
+NNNS17=NNNS17=full_join(DGE_2_17_gene$NNvSS$table %>% dplyr::select( genes, logFC_NNvSS=logFC, FDR_NNvSS=FDR),
+                        DGE_2_17_gene$NNvNS$table %>% dplyr::select( genes, logFC_NNvNS=logFC, FDR_NNvNS=FDR ))
+
+
+plotNNNS17=ggplot()+
+  geom_point(data=NNNS17, aes(x=logFC_NNvSS, y=logFC_NNvNS),color="#999999", alpha=0.30)+
+  geom_point(data=NNNS17[NNNS17$FDR_NNvSS<0.05,], aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#E6AB02", size=1)+
+  geom_point(data=NNNS17[NNNS17$FDR_NNvNS<0.05,], aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#3a538b", size=1)+
+  geom_point(data=NNNS17[NNNS17$FDR_NNvSS<0.05& NNNS17$FDR_NNvNS<0.05 &
+                           ((NNNS17$logFC_NNvSS < 0 & NNNS17$logFC_NNvNS < 0) |
+                              (NNNS17$logFC_NNvSS > 0 & NNNS17$logFC_NNvNS > 0)),],
+             aes(x=logFC_NNvSS, y=logFC_NNvNS), color="#21a585", size=1)+  # slope = 1 line
+  geom_point(data=NNNS17[NNNS17$FDR_NNvSS<0.05 & NNNS17$FDR_NNvNS<0.05 &
+                          ((NNNS17$logFC_NNvSS < 0 & NNNS17$logFC_NNvNS > 0) |
+                             (NNNS17$logFC_NNvSS > 0 & NNNS17$logFC_NNvNS < 0)),],
+             aes(x=logFC_NNvSS, y=logFC_NNvNS ), color="#ef6c23", size=1)+
+    labs(title="17hrs", x=(expression(paste("log FC U",bold("U"),"-S",bold("S")))), y=(expression(paste("log FC U",bold("U"),"-U",bold("S"))))) +
+  theme_bw()+
+  xlim(-12,12)+
+  ylim(-12,12)+
+  theme(aspect.ratio = 1)
+
+#topGO
+yellow=NNNS17[NNNS17$FDR_NNvSS<0.05,] #36
+blue=NNNS17[NNNS17$FDR_NNvNS<0.05,] #54
+green=NNNS17[NNNS17$FDR_NNvSS<0.05& NNNS17$FDR_NNvNS<0.05,] #16
+orange=NNNS17[NNNS17$FDR_NNvSS<0.05 & NNNS17$FDR_NNvNS<0.05 &
+                ((NNNS17$logFC_NNvSS < 0 & NNNS17$logFC_NNvNS > 0) |
+                   (NNNS17$logFC_NNvSS > 0 & NNNS17$logFC_NNvNS < 0)),]#0
+
+NNNS17_list=list(c1=green$genes,
+                 c2=yellow$genes,
+                 c3=blue$genes)
+
+allResNNNS17 <- list()
+for (i in 1:3) {
+  candidate_list<- NNNS17_list[[i]]
+  annotation <-annotation<-"/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Manuscript/Submission/Revision/ReSubmission/SupplementaryMaterial/Annotation/braker_Pca_proteindatabase_agatLongestIsoform_goodTranscripts_AA.faa_2line_eggNOGdefaultparams.GO.eggNOG.tsv"    
+
+  # here I will be only analyzing GO terms with at least 5 members,
+  # as this yield more stable results.
+  node_size=5
+
+  # We will focus on Biological prmocess terms (BP)
+  GO_category="BP"
+  geneID2GO <- readMappings(annotation)
+  names(geneID2GO) <- gsub("\\..*","",names(geneID2GO))
+  geneUniverse <- names(geneID2GO)
+
+  genesOfInterest.bv <- candidate_list
+
+  genesOfInterest.bv <- as.character(genesOfInterest.bv)
+  geneList.bv <- factor(as.integer(geneUniverse %in% genesOfInterest.bv))
+  names(geneList.bv) <- geneUniverse
+
+  myGOdata.bv <- new("topGOdata", description="Candidate genes", ontology=GO_category, allGenes=geneList.bv,  annot = annFUN.gene2GO, gene2GO = geneID2GO, nodeSize = node_size)
+
+  # STATS#
+  # when assessing a GO term, it takes into accoount the annotation of terms to the current term's parents,
+  # and so reduces false positives due to the inheritance problem
+  resultParentchild <- runTest(myGOdata.bv, algorithm="parentchild", statistic="fisher")
+
+  allResNNNS17[[i]] <- GenTable(myGOdata.bv,
+                                parentchildFisher = resultParentchild,
+                                orderBy = "parentchildFisher",
+                                topNodes = sum(resultParentchild@score < 0.01)) %>%
+    mutate(parentchildFisher = as.numeric(parentchildFisher))
+}
+
+names(allResNNNS17) <- names(NNNS17_list)
+
+write.xlsx(allResNNNS17$c1, file="NNNS_GO_B.xlsx", sheetName = "NNNS17_c1", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResNNNS17$c2, file="NNNS_GO_B.xlsx", sheetName = "NNNS17_c2", col.names = TRUE, row.names = TRUE, append=TRUE)
+write.xlsx(allResNNNS17$c3, file="NNNS_GO_B.xlsx", sheetName = "NNNS17_c3", col.names = TRUE, row.names = TRUE, append=TRUE)
+
+
+allRes_plotsNNNS17 <-list()
+for(i in 1:3) {
+  allRes_plotsNNNS17[[i]] <- ggplot(head(allResNNNS17[[i]],10), aes(x = -log10(as.numeric(parentchildFisher)), y = Term))+
+    geom_point(aes(size = 100*Significant/Annotated))+
+    labs(title = names(allResNNNS17)[i], x =expression('-log'[10]~'(p-value)'))+
+    theme(legend.position = "none")
+}
+
+GO_NNNS17=ggarrange(plotlist = allRes_plotsNNNS17, ncol = 3, nrow = 1,labels=c("missing", "unexpected", "expected"), vjust=1 )
+annotate_figure(GO_NNNS17, top=text_grob("NNNS17"))
+
+
+#plot Switch 2
+
+plot_S2_NG=ggarrange(plotNNNG2, plotNNNG17, plotGGGN2, plotGGGN17,  ncol = 2, nrow=2, labels=c("a", "b", "c", "d"))
+plot_S2_SN=ggarrange(plotNNNS2, plotNNNS17, plotSSSN2, plotSSSN17,  ncol = 2, nrow=2,labels=c("a", "b", "c", "d" ))
+plot_S2_SG=ggarrange(plotSSSG2, plotSSSG17, plotGGGS2, plotGGGS17,  ncol = 2, nrow=2, labels=c("e", "f", "g", "h" ))
+
+ggarrange(plot_S2_SN, plot_S2_SG, ncol=1, nrow=2)
+ggarrange(plot_S2_SN, plot_S2_SG, plot_S2_NG, ncol=3, nrow=1)
+
+```
+
+
