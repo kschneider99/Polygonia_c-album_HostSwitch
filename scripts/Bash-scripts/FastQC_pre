@@ -1,0 +1,16 @@
+# Quality check of raw reads
+#=============================
+
+#Quality check of raw fasta files was done using FastQC (version: 0.11.9)
+# Andrews 2010
+
+#this script was executed directly from the directory containing fasta-files:
+    #for f in /delivery04708/INBOX/P20008/*/*/*/*fastq.gz; do sbatch FastQC_pre.sh $f; done
+
+
+#FastQC_pre.sh
+#----------------
+
+module load bioinfo-tools FastQC/0.11.9
+
+fastqc -o /proj/pcalbum2021-23-194/Switches/Switch_2/Quality/FASTQC_pre --extract $1
