@@ -1,0 +1,11 @@
+# Creating Index for Mapping
+#================================
+
+# Mapping was done using STAR (Version: 2.7.2b; 2-pass approach)
+# Dobin et al. 2013
+#first an index needed to be created based on the reference genome_files
+
+
+module load bioinfo-tools star/2.7.2b
+
+STAR --runMode genomeGenerate --genomeDir /proj/pcalbum2021-23-194/genome_files/Index --genomeFastaFiles /proj/pcalbum2021-23-194/genome_files/Pcalbum_chromosome_and_unplaced.fasta --sjdbGTFfile /proj/pcalbum2021-23-194/genome_files/braker_Pca_proteindatabase.gtf
