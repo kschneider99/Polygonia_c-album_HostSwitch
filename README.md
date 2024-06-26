@@ -15,11 +15,11 @@ Code Availability
 
 
 Provided bash and R scripts used for the analysis include: 
--	Quality assessment, trimming and mapping of reads
--	Abundance estimation to produce count table
--	Differential gene expression analysis in edgeR: 
-o	Filtering and normalizing data (line 219)
-o	Effect of individual hosts and their interaction on the number of differentially expressed genes (line 1099)
-o	Effect of host switch on the number of differentially expressed genes (line 1364)
-o	Further categorization and gene set enrichment analysis of significantly differentially expressed genes (line 2064)
--	Effect of host switch on the larval performance 
+  -	Quality assessment, trimming and mapping of reads
+  -	Abundance estimation to produce count table
+  -	Differential gene expression analysis in edgeR:
+    -	Filtering and normalizing data (line 219)
+    -	Effect of individual hosts and their interaction on the number of differentially expressed genes (line 1099)
+    -	Effect of host switch on the number of differentially expressed genes (line 1364)
+    -	Further categorization and gene set enrichment analysis of significantly differentially expressed genes (line 2064)
+  -	Effect of host switch on the larval performance 
