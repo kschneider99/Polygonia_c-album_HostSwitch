@@ -1,0 +1,18 @@
+# Multiqc: create summary report of quality checks
+#=====================================================
+
+#Quality reports of raw and trimmed fasta files were summarized using MultiQC (version: 1.10)
+# Ewels et al. 2016
+
+#this script was executed directly from the directory containing fasta-files:
+    #for f in /delivery04708/INBOX/P20008/*/*/*/*fastq.gz; do sbatch FastQC_pre.sh $f; done
+
+
+#Multiqc.sh
+#-------------------
+    module load bioinfo-tools MultiQC/1.10
+
+    multiqc -o /proj/pcalbum2021-23-194/Switches/Switch_2/Quality/FASTQC_pre/MultiQC_S2_pre /proj/pcalbum2021-23-194/Switches/Switch_2/Quality/FASTQC_pre
+
+    #the same command was used for summarizing reports after trimming:
+    #  multiqc -o /proj/pcalbum2021-23-194/Switches/Switch_2/Quality/FASTQC_post/MultiQC_S2_post /proj/pcalbum2021-23-194/Switches/Switch_2/Quality/FASTQC_post
