@@ -1,0 +1,19 @@
+# Trimming
+#==============
+
+#Adapter trimming was done unsing Trimmomatic (version: 0.36)
+#Bolger et al. 2014
+
+# this script was executed directly from the directory containing fasta-files:
+    #for f in $(ls /delivery04708/INBOX/P20008/*/*/*/*fastq.gz | sed 's/_R[0-9]_001.fastq.gz//g' | uniq); do sbatch Trimming.sh $f; done
+
+
+#Trimming.sh
+#-------------
+
+outdir="/proj/pcalbum2021-23-194/Switches/Switch2/trimmed_reads_S2"
+filename=`basename ${1}*fastq.gz | sed 's/_R[0-9]_001.fastq.gz//g'`
+
+module load bioinfo-tools trimmomatic/0.36 FastQC/0.11.5
+
+java -jar $TRIMMOMATIC_HOME/trimmomatic.jar PE -phred33 ${1}_R1_001.fastq.gz ${1}_R2_001.fastq.gz ${outdir}/${filename}_R1_001.trimmomatic.fastq.gz ${outdir}/${filename}_R1_001.trimmomatic_unpaired.fastq.gz ${outdir}/${filename}_R2_001.trimmomatic.fastq.gz ${outdir}/${filename}_R2_001.trimmomatic_unpaired.fastq.gz ILLUMINACLIP:$TRIMMOMATIC_HOME/adapters/TruSeq3-PE-2.fa:2:30:10 SLIDINGWINDOW:4:5 LEADING:5 TRAILING:5 MINLEN:25
