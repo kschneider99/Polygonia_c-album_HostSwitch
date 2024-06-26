@@ -1,0 +1,29 @@
+# Mapping - STAR - Pass 1
+#================================
+
+# Mapping was done using STAR (Version: 2.7.2b; 2-pass approach)
+# Dobin et al. 2013
+
+#STAR_Pass1.sh
+#-----------------
+
+indir=/proj/pcalbum2021-23-194/Switches/Switch_2/trimmed_reads_S2/
+index=/proj/pcalbum2021-23-194/genome_files/Index
+
+module load bioinfo-tools star/2.7.2b
+
+left=(${indir}/*_left.fq.gz)
+right=(${indir}/*_right.fq.gz)
+
+for ((i=0;i<"${#left[@]}";i++)); do
+
+   STAR \
+  --runThreadN 8 \
+  --genomeDir $index \
+  --readFilesIn "${left[$i]}" "${right[$i]}" \
+  --readFilesCommand zcat \
+  --outSAMtype None \
+  --outSJfilterReads Unique \
+  --outFileNamePrefix /"${left[$i]%%_rep*}.SE1_Pass1_" \
+
+done
