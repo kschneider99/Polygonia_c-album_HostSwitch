@@ -1,0 +1,176 @@
+---
+title:  "Plasticity for the win: Flexible transcriptional response to host plant switches
+  in the comma butterfly (Polygonia c-album)"
+subtitle: "Performance assay"
+author: "Katharina Schneider, Rachel A. Steward, Maria de la Paz Celorio-Mancera, Niklas Janz, Dick Moberg, Christopher W. Wheat, Sören Nylin "
+date: "2024-06-25"
+output: html_document
+---
+
+## Background
+
+Larvae of Pca (Polygonia c-album) were reared on either of 3 different host plants (U=Urtica dioica, S=Salix caprea, R=Ribes uva-crispa).
+Larvae were reared under short-day conditions at 17C with a 12:12h light cycle.
+When reaching the 5th instar (earlier stages were hard to dissect) larvae were moved to a new plant. This was either the same species (e.g. U-U; "control") or an alternative host (e.g. U-S, "switch").
+
+
+# Load packages
+```{r load packages, "message = F"}
+library(readxl) # version "1.4.1"
+library(ggplot2) #version "3.5.0"
+library(DHARMa) #version "0.4.6"
+library(glmmTMB) #version "1.1.9"
+library(tidyverse) #version "1.3.2"
+library(car) #version "3.1-2"
+``` 
+
+# set directory
+```{r set directory}
+setwd=("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Performance/")
+```
+
+# Load and prepare data
+```{r load and prepare data}
+#SE_MC=read_excel("/Users/Kathi Schneider/Desktop/Host switch in Polygonia c-album/Switch_experiment_MC.xlsx")
+SE_MC=read_excel("Switch_experiment_MC.xlsx")
+str(SE_MC)
+
+#developmental stages are categorized in column "instar_edit". i corresponds to stages before the switch, i5 marks the measurement when a larva reached the 5th instar, as corresponds to measurements after the switch, p corresponds to pupa
+
+SE_MC$Family=as.factor(SE_MC$Family)
+SE_MC$Individual=as.factor(SE_MC$Individual)
+SE_MC$Weight=as.numeric(SE_MC$Weight)
+SE_MC$Weight_µg=1000*(SE_MC$Weight) #change unit to avoid negative logs
+
+``` 
+
+#calculate performance
+performance was m easured using growth rate
+Growth rate was calculated as = log(mass)/developmental time
+(since we want to compare the daily weight gain developmental time was 1)
+
+```{r calculate growth rate}
+SE_MC$logWeight=log(SE_MC$Weight_µg)
+```
+
+
+#add Treatment as a category
+```{r make colmun with treatment categories}
+SE_MC$treatment_lat=paste(SE_MC$Start_lat, SE_MC$End_lat, sep="-") #_lat=refers to column containing Satin names of the host
+```
+
+
+#exclude pupal weights
+since we wanted to measure the effect on daily weight gain during larval development, pupal weights were excluded
+```{r remove pupal weights}
+SE_larv=SE_MC[SE_MC$Age!="P",]
+SE_larv$Day=as.numeric(SE_larv$Age)
+```
+
+
+#highlight time of host switch
+to be able to mark the day of the host switch, we need to find the days of the switch
+these are named "i5" in the data sheet, as these are the days/the age when the larvae reached the 5th instar
+to get the host switch timepoint per treatment, the avereage was calculated per group. 
+
+```{r host switch timing}
+
+SE_MC_i5=SE_MC[SE_MC$Instar=="i5",] #this will collect all the lines with "i5"
+SE_MC_i5$Day=as.numeric(SE_MC_i5$Age)
+
+#make averages to get average age at host switch per treatment group
+ave_age=SE_larv[SE_larv$Instar_edit=="i5",] %>%
+  group_by(treatment_lat) %>%
+  summarize(average_value=mean(as.numeric(Age)))
+
+print(ave_age)
+
+```
+
+
+#plot growth rate
+```{r plot growth rate}
+
+#prepare vector to include vertical lines when larvae were switched (average age!)
+
+vline_data <- data.frame(
+  treatment_lat = c("U-U", "S-U", "R-U", "U-S", "S-S", "R-S", "U-R", "S-R", "R-R"),
+  vline_x = c(15.8, 23.4, 20.8,17.7,  19.7, 20.3,  18 ,  24,   21.1 )
+)
+
+ggplot(SE_larv, aes(x = Day, y = logWeight, color = treatment_lat)) +
+  geom_point() +
+  geom_smooth(method=loess, se = TRUE, aes(fill = treatment_lat), alpha = 0.2) + #For method = NULL the smoothing method is chosen based on the size of the largest group (across all panels). stats::loess() is used for less than 1,000 observations; otherwise mgcv::gam() is used with formula = y ~ s(x, bs = "cs") with method = "REML". Somewhat anecdotally, loess gives a better appearance, but is O(N2) in memory, so does not work for larger datasets.
+  scale_color_manual(values = c("#888888", "#CC6677", "#DDCC77", "#6699CC", "#661100", "#117733", "#332288", "#AA4499", "#999933")) +
+  scale_fill_manual(values = c("#888888", "#CC6677", "#DDCC77", "#6699CC", "#661100", "#117733", "#332288", "#AA4499", "#999933")) +
+  facet_wrap(~factor(treatment_lat, c("U-U", "S-U", "R-U", "U-S", "S-S", "R-S", "U-R", "S-R", "R-R"))) +
+  #facet_wrap(~factor(treatment, c("U-U", "U-S", "U-R", "S-U", "S-S", "S-R", "R-U", "R-S", "R-R"))) +
+  geom_vline(data = vline_data, aes(xintercept = vline_x)) + #add lines to plots for day of switch
+  theme_bw() +
+  scale_x_continuous(breaks = seq(from = 0, to = 36, by = 4)) +
+  theme(axis.title = element_text(size = 16)) +
+  theme(axis.text = element_text(size = 14)) +
+  theme(strip.text = element_text(size = 15, face = "bold")) +
+  ylab("Growth rate") +
+  theme(legend.position = "none")
+
+```
+
+# tedt for an effect of host switch on performance
+```{r linear model}
+
+model = glmmTMB(logWeight ~ treatment_lat + (1|Family/Individual), data = SE_larv, family=gaussian) #glmmTMB was necessary to run model with nested random effect
+
+res_model=simulateResiduals(model)
+plot(res_model)
+
+Anova(model)#--> no sign difference --> no effect on performance
+    # Chisq Df Pr(>Chisq)
+    # treatment_lat 13.604 8    0.0927
+```
+
+
+# testing the effect of host switch on performance after the switch
+This is included in the supplementary
+
+for this we first need to subset the dataset and remove every measurement that was taken before the larvae were switched to a new host plant (i.e. after switch until start of pupation; pupal weight NOT included!)
+
+```{r subsetting data}
+After_switch=SE_larv[SE_larv$Instar_edit!="i",]
+After_switch$Day=as.numeric(After_switch$Day)
+```
+
+#plot growth rate after switch 
+
+```{r plot growth rate only for measurements after switch}
+ggplot(After_switch, aes(x=Day, y=logWeight, color=treatment_lat))+
+  geom_point()+ #this will plot the individual data points
+  geom_smooth(se=TRUE,  aes(fill=treatment_lat), alpha=0.2)+
+  scale_color_manual(values = c("#888888", "#CC6677", "#DDCC77", "#6699CC", "#661100", "#117733", "#332288", "#AA4499", "#999933")) +
+  scale_fill_manual(values = c("#888888", "#CC6677", "#DDCC77", "#6699CC", "#661100", "#117733", "#332288", "#AA4499", "#999933")) +
+  #facet_wrap(~factor(After_switch$treatment_lat, levels=c("U-U", "U-S", "U-R", "S-S", "S-U", "S-R", "R-R", "R-U", "R-S")))+
+  facet_wrap(~factor(treatment_lat, c("U-U", "S-U", "R-U", "U-S", "S-S", "R-S", "U-R", "S-R", "R-R"))) +
+  theme_bw()+
+  scale_x_continuous(breaks=seq(from=0, to=36, by=2))+
+  theme(axis.title=element_text(size=15))+
+  theme(axis.text=element_text(size=12))+
+  theme(strip.text = element_text(size=13, face="bold"))+
+  ggtitle("After Switch")+
+  labs(x="Growth rate")+
+  theme(legend.position = "none")
+```
+
+#test effect of host switch on performance only using measurements after the switch
+
+```{r effect of host switch - after switch measurements}
+
+lm_SP=glmmTMB(logWeight ~ treatment_lat + (1|Family/Individual), data = After_switch, family=gaussian)
+
+sim_lm_SP=simulateResiduals(lm_SP)
+plot(sim_lm_SP)
+
+Anova(lm_SP) # --> no sign difference
+  #Chisq Df Pr(>Chisq)
+  #treatment_lat 3.3205  8     0.9127
+
+``` 
