@@ -1,0 +1,17 @@
+# Feature counts
+#=====================================================
+
+#abundance estimations were done using featureCounts from Subread (version 2.0.0)
+# Liao et al. 2014
+
+
+#FeatureCounts.sh
+#------------------
+
+indir=/proj/pcalbum2021-23-194/Switches/Switch_2/mapped/STAR_Pass2
+ref=/proj/pcalbum2021-23-194/genome_files
+
+module load bioinfo-tools
+module load subread/2.0.0
+
+featureCounts -a $ref/braker_Pca_proteindatabase.gtf -F GTF -p -t exon -g gene_id -J -o $indir/Count_S2 $indir/*bam
