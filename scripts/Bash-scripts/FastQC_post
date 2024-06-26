@@ -1,0 +1,16 @@
+# Quality check of trimmed reads
+#=============================
+
+#Quality check of trimmed fasta files was done using FastQC (version: 0.11.9)
+# Andrews 2010
+
+#this script was executed directly from the directory containing the filtered fasta-files:
+    #for f in /proj/pcalbum2021-23-194/Switches/Switch2/trimmed_reads_S2/*fastq.gz; do sbatch FastQC_post.sh $f; done
+
+
+#FastQC_pre.sh
+#----------------
+
+module load bioinfo-tools FastQC/0.11.9
+
+fastqc -o /proj/pcalbum2021-23-194/Switches/Switch_2/Quality/FASTQC_post --extract $1
