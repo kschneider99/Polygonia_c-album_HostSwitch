@@ -1354,14 +1354,10 @@ venn_2_17=ggVennDiagram(S2_17,
 ggarrange(venn_1_2, venn_1_17, venn_2_2, venn_2_17)
 
 # coloration was added with Affinity Designer
-
-
-#
-
 ```
 
 
-# 7. Effect of treatment and host switches on the number of differentieally expressed genes
+# 7. Effect of treatment and host switches on the number of differentially expressed genes
 ## design model matrix
 
 ```{r model matrix}
