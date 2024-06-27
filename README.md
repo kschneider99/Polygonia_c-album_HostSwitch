@@ -41,7 +41,7 @@ Additionally the effect of host switches on the larval performance was assessed 
 ## Data availability
 
 RNA-seq data used for this study have been archived on the European Nucleotide Archive (ENA) under the accession number PRJEB72698. 
-Reads were mapped to P. c-album genome available from the European Nucleotide Archive (accession number ERZ1744298). A copy of the genome is also publicly available at C. Wheat’s github repository Celorio-Mancera et al. (2021) in which the genome is reported: https://github.com/bioinfowheat/Polygonia_calbum_genomics. The gene annotation and functional annotation used in our analyses as well as raw count matrices and all bash and R scripts have been provided. 
+Reads were mapped to P. c-album genome available from the European Nucleotide Archive (accession number ERZ1744298). A copy of the genome is also publicly available at C. Wheat’s github repository Celorio-Mancera et al. (2021) in which the genome is reported: https://github.com/bioinfowheat/Polygonia_calbum_genomics. The gene annotation and functional annotation used in our analyses as well as raw count matrices and all bash and R scripts are provided. 
 
 
 ## Code Availability
