@@ -16,7 +16,7 @@ Larvae of _Polygonia c-album_ were reared on either of the three different host 
 To measure the transcriptional repsonse to a switch, larval midguts were collected 2 and 17 hours after the individuals were moved to a new host plant.
 RNA was extracted, library preparation (with Poly-A-selection) and sequencing was done at the NGI SciLifelab in Stockholm. RNA libraries were sequenced with 2x101bp paired-end sequencing on an Illumina TruSeq platform.
 Raw reads were first quality checked, adapters were removed and quality was checked again (scripts FastQC_pre, FastQC_post, MultiQC and Trimming in /Polygonia_c-album_HostSwitch/scripts/Bash-scripts/). After trimming samples were renamed to also include information about the host plants and the sampling timepoints. The list of corresponding sample names can be found in /Polygonia_c-album_HostSwitch/scripts/Bash-scripts/Sample_names_S1 and /Polygonia_c-album_HostSwitch/scripts/Bash-scripts/Sample_names_S2.
-Reads were aligned to a previously published reference genome of Polygonia c-album (Celorio-Mancera et al. 2021) using a using a STAR 2-pass approach (Bash-scripts: STAR_index, STAR_Pass1, STAR_Pass2). 
+Reads were aligned to a previously published reference genome of _Polygonia c-album_ (Celorio-Mancera et al. 2021) using a using a STAR 2-pass approach (Bash-scripts: STAR_index, STAR_Pass1, STAR_Pass2). 
 Abundance estimations were done using featureCounts (script: /Polygonia_c-album_HostSwitch/scripts/Bash-scripts/FeatureCounts; generated count matrices: /Polygonia_c-album_HostSwitch/scripts/Count_matrices). 
 
 Downstream analysis was performed in R using EdgeR (script: /Polygonia_c-album_HostSwitch/scripts/R-scripts/HostSwitch_DGE.Rmd). 
