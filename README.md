@@ -5,7 +5,7 @@
 ## Abstract
 Generalist plant-feeding insects are characterized by a broad host repertoire that can comprise several families or even different orders of plants. The genetic and physiological mechanisms underlying the use of such a wide host range are still not fully understood.  Earlier studies indicate that the consumption of different host plants is associated with host-specific gene expression profiles. It remained, however, unclear if and how larvae can alter these profiles in the case of a changing host environment. Using the polyphagous comma butterfly (Polygonia c-album) we show that larvae can adjust their transcriptional profiles in response to a new host plant. The switch to some of the host plants, however, resulted in a larger transcriptional response and, thus, seems to be more challenging. At a physiological level, no correspondence for these patterns could be found in larval performance. This suggests that a high transcriptional but also phenotypic flexibility are essential for the use of a broad and diverse host range. We furthermore propose that host switch tests in the laboratory followed by transcriptomic investigations can be a valuable tool to examine not only plasticity in host use but also subtle and/or transient trade-offs in the evolution of host plant repertoires. 
 
-## Experimental Setup and Methods
+### Experimental Setup and Methods
 For this study, two switch experiments were combined, which differed in the used host plants. 
 **Switch A**: _Urtica dioica_ (Ud or N in the datasheets and scripts), _Salix caprea_ (Sc or S), _Ulmus glabra_ (Ug or E)
 **Switch B**: _Urtica dioica_, _Salix caprea_, _Ribes_uva_crispa_(Ru or G)
