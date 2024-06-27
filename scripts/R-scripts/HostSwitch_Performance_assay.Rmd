@@ -174,3 +174,6 @@ Anova(lm_SP) # --> no sign difference
   #treatment_lat 3.3205  8     0.9127
 
 ``` 
+
+
+
